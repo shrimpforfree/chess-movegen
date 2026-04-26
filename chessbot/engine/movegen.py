@@ -30,6 +30,8 @@ def is_friendly_piece(board: Board, square: int, friendly_color: str) -> bool:
 def generate_pawn_moves(board: Board, from_sq: int, moves: List[Move]):
     """
     Generate pseudo-legal pawn moves.
+
+    no promotion yet
     """
     piece = board.squares[from_sq]
     is_white = piece.isupper()
@@ -69,6 +71,11 @@ def generate_pawn_moves(board: Board, from_sq: int, moves: List[Move]):
             to_sq = from_sq + capture_dir
             if to_sq == board.ep_square:
                 moves.append(Move(from_sq, to_sq, flags=Move.FLAG_EP_CAPTURE))
+
+    # # pawn promotion
+    # if is_white:
+    #     if to_sq // 10 == 2:
+    #         move.append(Move(from_sq, to_sq, promo = "Q"))
 
 
 def generate_knight_moves(board: Board, from_sq: int, moves: List[Move]):

@@ -1,0 +1,16 @@
+# Stage 1: Build
+FROM sbt:eclipse-temurin-17.0.13_11_1.10.11_3.6.4 AS build
+WORKDIR /app
+COPY project/build.properties project/plugins.sbt project/
+COPY build.sbt .
+# Download dependencies first (cached unless build.sbt changes)
+RUN sbt update
+COPY src/ src/
+RUN sbt stage
+
+# Stage 2: Run (slim JRE, no sbt/build tools)
+FROM eclipse-temurin:17-jre
+WORKDIR /app
+COPY --from=build /app/target/universal/stage/ .
+EXPOSE 8080
+CMD ["bin/chesslab-engine"]

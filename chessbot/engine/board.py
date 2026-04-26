@@ -284,6 +284,7 @@ class Board:
         if self.side_to_move == WHITE:
             self.fullmove_number += 1
 
+
     def __str__(self):
         # Board pretty print
         lines = []
