@@ -13,4 +13,4 @@ FROM eclipse-temurin:23-jre
 WORKDIR /app
 COPY --from=build /app/target/universal/stage/ .
 EXPOSE 8080
-CMD ["bin/chesslab-engine"]
+CMD ["bin/chesslab-engine", "-J-Xmx256m", "-J-Xms128m"]
