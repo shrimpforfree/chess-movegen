@@ -20,8 +20,8 @@ export default function Home() {
     const data = await res.json();
 
     // Store token so the game page knows we're white
-    sessionStorage.setItem(`game-${data.gameId}-token`, data.playerToken);
-    sessionStorage.setItem(`game-${data.gameId}-color`, data.color);
+    localStorage.setItem(`game-${data.gameId}-token`, data.playerToken);
+    localStorage.setItem(`game-${data.gameId}-color`, data.color);
 
     router.push(`/game/${data.gameId}`);
   };

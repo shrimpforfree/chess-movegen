@@ -25,6 +25,27 @@ export async function GET(
   });
 }
 
+// PATCH /api/games/[id] — reclaim a seat (take control)
+export async function PATCH(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params;
+  const body = await req.json();
+  const { color, playerToken } = body;
+
+  if (color !== "white" && color !== "black") {
+    return Response.json({ error: "Invalid color" }, { status: 400 });
+  }
+
+  const game = gameStore.reclaim(id, color, playerToken);
+  if (!game) {
+    return Response.json({ error: "Cannot reclaim this seat" }, { status: 400 });
+  }
+
+  return Response.json({ gameId: game.id, playerToken, color });
+}
+
 // POST /api/games/[id] — join a game as black
 export async function POST(
   req: NextRequest,

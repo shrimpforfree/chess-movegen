@@ -101,6 +101,16 @@ export const gameStore = {
     listeners.get(id)?.delete(cb);
   },
 
+  /** Reclaim a seat — replaces the existing token for that color */
+  reclaim(id: string, color: "white" | "black", newToken: string): GameSession | null {
+    const game = games.get(id);
+    if (!game) return null;
+    if (color === "white") game.white = newToken;
+    else if (color === "black" && game.black !== "ai") game.black = newToken;
+    else return null;
+    return game;
+  },
+
   /** Get which color a player token is in a game */
   playerColor(
     game: GameSession,
