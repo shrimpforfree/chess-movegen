@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM sbt:eclipse-temurin-17.0.13_11_1.10.11_3.6.4 AS build
+FROM sbtscala/scala-sbt:eclipse-temurin-17.0.13_11_1.10.11_3.3.4 AS build
 WORKDIR /app
 COPY project/build.properties project/plugins.sbt project/
 COPY build.sbt .
