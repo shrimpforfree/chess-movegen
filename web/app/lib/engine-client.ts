@@ -30,7 +30,7 @@ export async function makeMove(
 export async function getAiMove(
   fen: string,
   depth: number
-): Promise<{ move: string; fen: string; status: string }> {
+): Promise<{ move: string; fen: string; status: string; eval?: number }> {
   const res = await fetch(`${ENGINE_URL}/ai-move`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

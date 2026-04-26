@@ -53,7 +53,8 @@ export async function POST(
           id,
           aiResult.fen,
           aiResult.move,
-          aiResult.status
+          aiResult.status,
+          aiResult.eval
         );
       } catch {
         // AI failed — game continues, player can retry
@@ -67,5 +68,6 @@ export async function POST(
     status: finalGame.status,
     moves: finalGame.moves,
     winner: finalGame.winner,
+    eval: finalGame.eval,
   });
 }

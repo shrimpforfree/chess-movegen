@@ -70,7 +70,8 @@ export const gameStore = {
     gameId: string,
     newFen: string,
     moveUci: string,
-    engineStatus: string
+    engineStatus: string,
+    evalScore?: number
   ): GameSession | null {
     const game = games.get(gameId);
     if (!game) return null;
@@ -80,6 +81,7 @@ export const gameStore = {
     game.moves.push(moveUci);
     game.status = status;
     if (winner) game.winner = winner;
+    if (evalScore !== undefined) game.eval = evalScore;
 
     notify(gameId, {
       type: "update",
@@ -87,6 +89,7 @@ export const gameStore = {
       status: game.status,
       lastMove: moveUci,
       winner,
+      eval: game.eval,
     });
 
     return game;

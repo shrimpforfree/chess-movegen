@@ -22,6 +22,7 @@ export async function GET(
     winner: game.winner,
     hasWhite: game.white !== null,
     hasBlack: game.black !== null,
+    eval: game.eval,
   });
 }
 

@@ -61,9 +61,10 @@ object Routes:
           case Right(board) =>
             Search.bestMove(board, body.depth) match
               case None => BadRequest(ErrorResponse("No legal moves available"))
-              case Some((move, _)) =>
+              case Some((move, score)) =>
+                val whiteEval = if board.sideToMove == Color.White then score else -score
                 val after = board.makeMove(move)
-                Ok(AiMoveResponse(FenCodec.moveToUci(move), FenCodec.boardToFen(after), statusString(gameStatus(after))))
+                Ok(AiMoveResponse(FenCodec.moveToUci(move), FenCodec.boardToFen(after), statusString(gameStatus(after)), whiteEval))
       yield resp
 
     case req @ POST -> Root / "validate" =>
@@ -108,9 +109,10 @@ object Routes:
           case Right(board) =>
             Search.bestMove(board, body.depth) match
               case None => BadRequest(ErrorResponse("No legal moves available"))
-              case Some((move, _)) =>
+              case Some((move, score)) =>
+                val whiteEval = if board.sideToMove == Color.White then score else -score
                 val after = board.makeMove(move)
-                Ok(BoardAiMoveResponse(FenCodec.moveToUci(move), BoardCodec.toJson(after), statusString(gameStatus(after))))
+                Ok(BoardAiMoveResponse(FenCodec.moveToUci(move), BoardCodec.toJson(after), statusString(gameStatus(after)), whiteEval))
       yield resp
 
     case req @ POST -> Root / "board" / "validate" =>

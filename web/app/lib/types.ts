@@ -17,6 +17,7 @@ export interface GameSession {
   black: string | null;
   aiDepth: number;
   winner?: "white" | "black";
+  eval?: number; // centipawns, from white's perspective
 }
 
 export interface GameEvent {
@@ -25,5 +26,6 @@ export interface GameEvent {
   status?: GameStatus;
   lastMove?: string;
   winner?: string;
+  eval?: number;
   error?: string;
 }

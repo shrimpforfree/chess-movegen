@@ -20,6 +20,7 @@ export default function ChessBoardComponent({
   const [status, setStatus] = useState("waiting");
   const [moves, setMoves] = useState<string[]>([]);
   const [winner, setWinner] = useState<string | undefined>();
+  const [evalScore, setEvalScore] = useState<number | undefined>();
   const [error, setError] = useState<string | null>(null);
 
   // Subscribe to SSE for real-time updates
@@ -32,6 +33,7 @@ export default function ChessBoardComponent({
         if (data.fen) setFen(data.fen);
         if (data.status) setStatus(data.status);
         if (data.winner) setWinner(data.winner);
+        if (data.eval !== undefined) setEvalScore(data.eval);
       }
     };
 
@@ -47,6 +49,7 @@ export default function ChessBoardComponent({
         setStatus(data.status);
         setMoves(data.moves || []);
         if (data.winner) setWinner(data.winner);
+        if (data.eval !== undefined) setEvalScore(data.eval);
       });
   }, [gameId]);
 
@@ -101,6 +104,7 @@ export default function ChessBoardComponent({
             setStatus(data.status);
             setMoves(data.moves || []);
             if (data.winner) setWinner(data.winner);
+            if (data.eval !== undefined) setEvalScore(data.eval);
           }
         })
         .catch(() => setError("Failed to make move"));
@@ -132,6 +136,12 @@ export default function ChessBoardComponent({
       <div style={{ fontSize: "18px", fontWeight: "bold" }}>
         {statusText()}
       </div>
+
+      {evalScore !== undefined && (
+        <div style={{ fontSize: "14px", color: "#666", fontFamily: "monospace" }}>
+          Eval: {evalScore > 0 ? "+" : ""}{(evalScore / 100).toFixed(2)}
+        </div>
+      )}
 
       <div style={{ width: "560px", maxWidth: "100%" }}>
         <Chessboard

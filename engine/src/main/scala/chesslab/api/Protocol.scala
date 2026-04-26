@@ -17,7 +17,7 @@ case class LegalMovesResponse(moves: List[String]) derives Encoder.AsObject
 
 case class MakeMoveResponse(fen: String, status: String) derives Encoder.AsObject
 
-case class AiMoveResponse(move: String, fen: String, status: String) derives Encoder.AsObject
+case class AiMoveResponse(move: String, fen: String, status: String, eval: Int) derives Encoder.AsObject
 
 case class ValidateResponse(valid: Boolean, error: Option[String]) derives Encoder.AsObject
 
@@ -53,6 +53,6 @@ case class BoardMakeMoveResponse(board: BoardJson, status: String) derives Encod
 
 case class BoardAiMoveRequest(board: BoardJson, depth: Int) derives Decoder
 
-case class BoardAiMoveResponse(move: String, board: BoardJson, status: String) derives Encoder.AsObject
+case class BoardAiMoveResponse(move: String, board: BoardJson, status: String, eval: Int) derives Encoder.AsObject
 
 case class BoardValidateResponse(valid: Boolean, error: Option[String]) derives Encoder.AsObject
