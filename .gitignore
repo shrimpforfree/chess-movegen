@@ -37,3 +37,6 @@ htmlcov/
 # Temporary files
 *.tmp
 *.log
+
+# Build
+Makefile
