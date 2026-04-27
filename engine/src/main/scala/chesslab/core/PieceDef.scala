@@ -74,8 +74,13 @@ object PieceRegistry:
     )
   )
 
+  // Auto-register custom pieces from PieceTypes so Board.makeMove doesn't throw.
+  // Movement details aren't needed here — the bitboard engine handles that.
+  private val customPieces: Vector[PieceDef] =
+    PieceTypes.customs.map(cp => PieceDef(id = cp.id, value = cp.value)).toVector
+
   private val registry: Map[PieceId, PieceDef] =
-    standardPieces.map(pd => pd.id -> pd).toMap
+    (standardPieces ++ customPieces).map(pd => pd.id -> pd).toMap
 
   def apply(id: PieceId): PieceDef =
     registry.getOrElse(id, throw IllegalArgumentException(s"Unknown piece: ${id.value}"))

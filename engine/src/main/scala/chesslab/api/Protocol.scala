@@ -10,16 +10,40 @@ case class FenRequest(fen: String) derives Decoder
 case class MakeMoveRequest(fen: String, move: String) derives Decoder
 
 case class EngineConfig(
-  depth: Option[Int] = None,                  // max search depth (default 5)
-  timeMs: Option[Int] = None,                 // time limit in ms (not yet implemented)
-  useBook: Option[Boolean] = None,            // use opening book (default true)
-  useHash: Option[Boolean] = None,            // use transposition table (default true)
-  hashSizeMb: Option[Int] = None,             // transposition table size in MB (default 16)
-  contempt: Option[Int] = None,               // draw avoidance in centipawns (default 0)
-  useNullMove: Option[Boolean] = None,        // null move pruning (default true)
-  nullMoveDepthReduction: Option[Int] = None, // depth reduction for null move (default 2)
-  nullMoveThreshold: Option[Int] = None       // min eval advantage in centipawns to try null move (default 0)
-) derives Decoder, Encoder.AsObject
+  depth: Option[Int] = None,
+  skillLevel: Option[Int] = None,
+  useBook: Option[Boolean] = None,
+  useHash: Option[Boolean] = None,
+  hashSizeMb: Option[Int] = None,
+  contempt: Option[Int] = None,
+  useNullMove: Option[Boolean] = None,
+  nullMoveDepthReduction: Option[Int] = None,
+  nullMoveThreshold: Option[Int] = None
+) derives Decoder, Encoder.AsObject:
+  // Resolve with defaults — call this once instead of .getOrElse everywhere
+  def resolved: ResolvedConfig = ResolvedConfig(
+    depth = depth.getOrElse(5),
+    skillLevel = skillLevel.getOrElse(99),
+    useBook = useBook.getOrElse(true),
+    useHash = useHash.getOrElse(true),
+    hashSizeMb = hashSizeMb.getOrElse(16),
+    contempt = contempt.getOrElse(0),
+    useNullMove = useNullMove.getOrElse(true),
+    nullMoveDepthReduction = nullMoveDepthReduction.getOrElse(2),
+    nullMoveThreshold = nullMoveThreshold.getOrElse(0)
+  )
+
+case class ResolvedConfig(
+  depth: Int,
+  skillLevel: Int,
+  useBook: Boolean,
+  useHash: Boolean,
+  hashSizeMb: Int,
+  contempt: Int,
+  useNullMove: Boolean,
+  nullMoveDepthReduction: Int,
+  nullMoveThreshold: Int
+)
 
 object EngineConfig:
   val default: EngineConfig = EngineConfig()
@@ -71,3 +95,39 @@ case class BoardAiMoveRequest(board: BoardJson, config: Option[EngineConfig] = N
 case class BoardAiMoveResponse(move: String, board: BoardJson, status: String, eval: Int) derives Encoder.AsObject
 
 case class BoardValidateResponse(valid: Boolean, error: Option[String]) derives Encoder.AsObject
+
+// --- Game setup ---
+
+case class SetupJson(key: String, name: String, description: String, fen: String) derives Encoder.AsObject
+
+case class SetupsResponse(setups: List[SetupJson]) derives Encoder.AsObject
+
+// --- Piece info ---
+
+case class PieceInfoJson(
+  id: String,             // piece name (e.g. "archbishop")
+  fenChar: String,        // FEN character (e.g. "a")
+  value: Int,             // material value in centipawns
+  description: String,    // how it moves in plain English
+  movesFrom: List[String] // squares reachable from D4 on an empty board (e.g. ["a1", "b2", ...])
+) derives Encoder.AsObject
+
+case class PiecesResponse(pieces: List[PieceInfoJson]) derives Encoder.AsObject
+
+// --- Piece combiner ---
+
+case class TraitJson(`type`: String, direction: Option[String] = None, dr: Option[Int] = None, df: Option[Int] = None, maxRange: Option[Int] = None) derives Decoder
+
+case class CombineRequest(base: Option[String] = None, traits: Option[List[TraitJson]] = None, add: Option[List[TraitJson]] = None, name: Option[String] = None) derives Decoder
+
+case class CombineResponse(name: String, fenChar: String, value: Int, description: String, movesFrom: List[String], index: Int) derives Encoder.AsObject
+
+// --- Fusion mode ---
+
+case class UpgradeJson(key: String, name: String, description: String) derives Encoder.AsObject
+
+case class FusionRollResponse(upgrade: UpgradeJson) derives Encoder.AsObject
+
+case class FusionApplyRequest(board: BoardJson, square: String, upgradeKey: String) derives Decoder
+
+case class FusionApplyResponse(board: BoardJson, pieceName: String, value: Int, description: String, movesFrom: List[String]) derives Encoder.AsObject

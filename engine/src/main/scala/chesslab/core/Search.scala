@@ -1,6 +1,7 @@
 package chesslab.core
 
 import scala.util.boundary, boundary.break
+import scala.util.Random
 
 object Search:
 
@@ -11,6 +12,8 @@ object Search:
   private var nullMoveEnabled = true
   private var nullMoveR = 2
   private var nullMoveThreshold = 0
+  private var skillNoise = 0          // centipawns of noise added at root (0 = full strength)
+  private val rng = Random()
 
   // -------------------------------------------------------------------------
   // Piece value lookup for move ordering (indexed by PieceId)
@@ -85,7 +88,7 @@ object Search:
     boundary:
       if bb.halfmoveClock >= 100 then break(drawScore)
 
-      val hash = if useHash then Zobrist.hash(bb) else 0L
+      val hash = if useHash then bb.hash else 0L
 
       // Probe transposition table
       val ttEntry = if useHash then TransTable.probe(hash) else None
@@ -152,8 +155,9 @@ object Search:
    * Returns the move in mailbox coordinates for backward compatibility with Routes.
    */
   def bestMove(
-    board: Board,
+    bb: BitBoard,
     maxDepth: Int,
+    skillLevel: Int = 99,
     useBook: Boolean = true,
     useHashTable: Boolean = true,
     hashSizeMb: Int = 16,
@@ -162,11 +166,13 @@ object Search:
     nullMoveReduction: Int = 2,
     nullMoveMinAdvantage: Int = 0
   ): Option[(Move, Int)] =
-    val bb = board.bb
     val moves = BitLegal.legalMoves(bb)
     if moves.isEmpty then None
     else
       // Apply config
+      val clampedSkill = math.max(1, math.min(99, skillLevel))
+      // Level 99 = 0 noise (perfect), level 1 = 600cp noise (blunders heavily)
+      skillNoise = ((99 - clampedSkill) * 600) / 98
       drawScore = -contempt
       useHash = useHashTable
       nullMoveEnabled = useNullMovePruning
@@ -174,19 +180,20 @@ object Search:
       nullMoveThreshold = nullMoveMinAdvantage
       if useHash then TransTable.resize(hashSizeMb)
 
-      // Check opening book first (uses Board for FEN-based lookup)
+      // Check opening book first
       val bookMove =
         if useBook then
-          OpeningBook.lookup(board).flatMap { uci =>
-            moves.find(m => FenCodec.sq64MoveToUci(m) == uci).map(m => (m, 0))
+          OpeningBook.lookup(bb).flatMap { uci =>
+            moves.find(m => FenCodec.moveToUci(m) == uci).map(m => (m, 0))
           }
         else None
 
-      val result = if bookMove.isDefined then bookMove
+      if bookMove.isDefined then bookMove
       else
         TransTable.clear()
-        // Iterative deepening search
-        (1 to maxDepth).foldLeft(Option.empty[(Move, Int)]) { (prev, depth) =>
+
+        // Search all depths (iterative deepening)
+        val searchResult = (1 to maxDepth).foldLeft(Option.empty[(Move, Int)]) { (prev, depth) =>
           val ordered = prev match
             case Some((prevBest, _)) =>
               val (first, rest) = moves.partition(m =>
@@ -206,8 +213,22 @@ object Search:
           Some((best, score))
         }
 
-      // Convert best move from Sq64 to mailbox for backward compat with Routes
-      result.map { (move, score) =>
-        val mbxMove = Move(Sq64.toMailbox(move.from), Sq64.toMailbox(move.to), move.promo, move.flag)
-        (mbxMove, score)
-      }
+        // Apply skill noise: re-evaluate root moves and pick with fuzzy scores
+        if skillNoise > 0 && searchResult.isDefined then
+          applySkillNoise(bb, moves, maxDepth)
+        else searchResult
+
+  /**
+   * Re-score all root moves at the final depth and add random noise.
+   * The "best" move under noise might not be the actual best — simulating mistakes.
+   * Higher noise = bigger mistakes = lower skill level.
+   */
+  private def applySkillNoise(bb: BitBoard, moves: Vector[Move], depth: Int): Option[(Move, Int)] =
+    val scored = moves.map { move =>
+      val realScore = -negamax(bb.makeMove(move), depth - 1, -Infinity, Infinity)
+      val noise = rng.nextInt(skillNoise * 2 + 1) - skillNoise
+      (move, realScore, realScore + noise)
+    }
+    // Pick the move with the highest noisy score
+    val best = scored.maxBy(_._3)
+    Some((best._1, best._2))  // return the real score, not the noisy one

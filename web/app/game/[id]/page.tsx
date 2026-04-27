@@ -6,6 +6,9 @@ import Link from "next/link";
 import ChessBoard from "@/app/components/ChessBoard";
 import AutoPlayPanel, { type AutoPlayRef } from "@/app/components/AutoPlayPanel";
 import AiConfigPanel from "@/app/components/AiConfigPanel";
+import RulesPanel from "@/app/components/RulesPanel";
+import FusionDraftPanel from "@/app/components/FusionDraftPanel";
+import type { FusionDraftRef } from "@/app/components/FusionDraftPanel";
 
 export default function GamePage() {
   const params = useParams<{ id: string }>();
@@ -21,7 +24,15 @@ export default function GamePage() {
   const [needsReclaim, setNeedsReclaim] = useState(false);
   const [gameMode, setGameMode] = useState<string | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
+  const [currentFen, setCurrentFen] = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+  const [fusionUpgrade, setFusionUpgrade] = useState<{ key: string; name: string; description: string } | null>(null);
+  const [fusionDraftDone, setFusionDraftDone] = useState(false);
   const autoRef = useRef<AutoPlayRef>(null);
+  const fusionRef = useRef<FusionDraftRef>(null);
+
+  const handleFusionSquareClick = (square: string) => {
+    fusionRef.current?.applyToSquare(square);
+  };
 
   const reclaim = async (color: "white" | "black") => {
     const token = Math.random().toString(36).substring(2, 12);
@@ -66,6 +77,12 @@ export default function GamePage() {
         }
 
         setGameMode(gameData.mode);
+
+        // Fusion mode — load upgrade info
+        if (gameData.fusionUpgrade) {
+          setFusionUpgrade(gameData.fusionUpgrade);
+          setFusionDraftDone(gameData.fusionDraftDone ?? false);
+        }
 
         // Auto mode — spectator view, no joining needed
         if (gameData.mode === "auto") {
@@ -189,10 +206,12 @@ export default function GamePage() {
         &larr; Home
       </Link>
       <h1 style={{ marginBottom: "8px" }}>
-        {gameMode === "auto" ? "Auto Play" : "Chess Game"}
+        {gameMode === "fusion" && !fusionDraftDone ? "Fusion Draft" : gameMode === "auto" ? "Auto Play" : "Chess Game"}
       </h1>
       <p style={{ marginBottom: "16px", color: "#666", fontSize: "14px" }}>
-        {gameMode === "auto" ? (
+        {gameMode === "fusion" && !fusionDraftDone ? (
+          <>Select upgrade, click a piece on the board, then Start Game</>
+        ) : gameMode === "auto" ? (
           <>Engine vs Engine &middot; Game <code>{gameId}</code></>
         ) : (
           <>Playing as <strong>{playerColor}</strong> &middot; Game{" "}<code>{gameId}</code></>
@@ -203,19 +222,44 @@ export default function GamePage() {
           gameId={gameId}
           playerToken={playerToken}
           playerColor={playerColor}
-          readonly={gameMode === "auto"}
+          readonly={gameMode === "auto" || (gameMode === "fusion" && !fusionDraftDone)}
           onNewGame={createNewGame}
+          onFenChange={setCurrentFen}
+          onSquareClicked={gameMode === "fusion" && !fusionDraftDone ? handleFusionSquareClick : undefined}
         />
-        {gameMode === "auto" && (
-          <AutoPlayPanel
-            ref={autoRef}
-            gameId={gameId}
-            onRunningChange={setAutoRunning}
-          />
-        )}
-        {gameMode === "human-vs-ai" && (
-          <AiConfigPanel gameId={gameId} />
-        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {gameMode === "fusion" && fusionUpgrade && !fusionDraftDone && playerToken && (
+            <FusionDraftPanel
+              ref={fusionRef}
+              gameId={gameId}
+              playerToken={playerToken}
+              upgrade={fusionUpgrade}
+              onDraftComplete={() => {
+                setFusionDraftDone(true);
+                fetch(`/api/games/${gameId}`).then(r => r.json()).then(data => {
+                  if (data.fen) setCurrentFen(data.fen);
+                });
+              }}
+              onUpgradeApplied={() => {
+                // Reload board state to show upgraded piece
+                fetch(`/api/games/${gameId}`).then(r => r.json()).then(data => {
+                  if (data.fen) setCurrentFen(data.fen);
+                });
+              }}
+            />
+          )}
+          {gameMode === "auto" && (
+            <AutoPlayPanel
+              ref={autoRef}
+              gameId={gameId}
+              onRunningChange={setAutoRunning}
+            />
+          )}
+          {(gameMode === "human-vs-ai" || (gameMode === "fusion" && fusionDraftDone)) && (
+            <AiConfigPanel gameId={gameId} />
+          )}
+          <RulesPanel fen={currentFen} />
+        </div>
       </div>
       {gameMode === "auto" && (
         <button

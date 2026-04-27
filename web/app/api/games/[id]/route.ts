@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { gameStore } from "@/app/lib/game-store";
+import { getLegalMoves } from "@/app/lib/engine-client";
 
-// GET /api/games/[id] — get game state
+// GET /api/games/[id] — get game state + legal moves
 export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
@@ -11,6 +12,28 @@ export async function GET(
 
   if (!game) {
     return Response.json({ error: "Game not found" }, { status: 404 });
+  }
+
+  // Fetch legal moves for click-to-move highlighting
+  let legalMovesList: string[] = [];
+  try {
+    if (game.mode === "fusion" && game.boardJson && game.fusionDraftDone) {
+      // Fusion mode: use board JSON endpoint for legal moves
+      const ENGINE_URL = process.env.ENGINE_URL || "http://localhost:8080";
+      const res = await fetch(`${ENGINE_URL}/board/legal-moves`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(game.boardJson),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        legalMovesList = data.moves || [];
+      }
+    } else {
+      legalMovesList = await getLegalMoves(game.fen);
+    }
+  } catch {
+    // Engine may not be running — not critical
   }
 
   return Response.json({
@@ -23,6 +46,10 @@ export async function GET(
     hasWhite: game.white !== null,
     hasBlack: game.black !== null,
     eval: game.eval,
+    legalMoves: legalMovesList,
+    fusionUpgrade: game.fusionUpgrade,
+    fusionDraftDone: game.fusionDraftDone,
+    boardJson: game.boardJson,
   });
 }
 

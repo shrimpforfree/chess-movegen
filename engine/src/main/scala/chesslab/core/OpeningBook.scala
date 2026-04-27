@@ -122,8 +122,8 @@ object OpeningBook:
    * Look up a book move for the given position.
    * Returns a random choice from available book moves, or None if not in book.
    */
-  def lookup(board: Board): Option[String] =
-    val fen = FenCodec.boardToFen(board)
+  def lookup(bb: BitBoard): Option[String] =
+    val fen = FenCodec.toFen(bb)
     val key = fenKey(fen)
     book.get(key).map { moves =>
       moves(Random.nextInt(moves.size))

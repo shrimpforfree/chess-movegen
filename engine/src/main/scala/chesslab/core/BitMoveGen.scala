@@ -65,7 +65,10 @@ object BitMoveGen:
     // Castling — king + rook multi-piece move with attack checks
     val acc7 = castlingMoves(bb, occ, acc6)
 
-    acc7.toVector
+    // Custom pieces — dynamic loop using registered attack functions
+    val acc8 = customPieceMoves(bb, friendly, occ, acc7)
+
+    acc8.toVector
 
   // =========================================================================
   // Generic piece-move generator — works for any non-pawn piece.
@@ -245,3 +248,15 @@ object BitMoveGen:
         !BitAttacks.isAttacked(58, enemy, bb)         // C8
       then Move(60, 58, flag = MoveFlag.Castling) :: acc1
       else acc1
+
+  // =========================================================================
+  // Custom pieces — generate moves for any registered custom piece types.
+  // Loops over PieceTypes.customs, using each piece's attack function.
+  // If no custom pieces are registered, returns acc immediately.
+  // =========================================================================
+
+  private def customPieceMoves(bb: BitBoard, friendly: Long, occ: Long, acc: List[Move]): List[Move] =
+    PieceTypes.customs.zipWithIndex.foldLeft(acc) { case (moves, (cp, ci)) =>
+      val idx = 6 + ci
+      generatePieceMoves(bb.pieces(idx) & friendly, sq => cp.attacks(sq, occ) & ~friendly, moves)
+    }

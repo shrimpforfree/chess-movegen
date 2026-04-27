@@ -35,7 +35,7 @@ function notify(gameId: string, event: GameEvent) {
 }
 
 export const gameStore = {
-  create(mode: GameMode, playerToken: string, aiDepth = 6, customFen?: string): GameSession {
+  create(mode: GameMode, playerToken: string, aiDepth = 6, customFen?: string, fusionUpgrade?: GameSession["fusionUpgrade"]): GameSession {
     const id = generateId();
     const startFen = customFen ||
       "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -44,11 +44,13 @@ export const gameStore = {
       fen: startFen,
       moves: [],
       mode,
-      status: mode === "human-vs-ai" || mode === "auto" ? "in_progress" : "waiting",
+      status: mode === "fusion" ? "waiting" : (mode === "human-vs-ai" || mode === "auto" ? "in_progress" : "waiting"),
       white: playerToken,
-      black: mode === "human-vs-ai" ? "ai" : mode === "auto" ? "auto" : null,
+      black: (mode === "human-vs-ai" || mode === "fusion") ? "ai" : mode === "auto" ? "auto" : null,
       aiDepth,
       positionHistory: new Map([[positionKey(startFen), 1]]),
+      fusionUpgrade,
+      fusionDraftDone: false,
     };
     games.set(id, session);
     return session;
@@ -127,6 +129,17 @@ export const gameStore = {
 
   unsubscribe(id: string, cb: (event: GameEvent) => void) {
     listeners.get(id)?.delete(cb);
+  },
+
+  /** Complete the fusion draft — store the upgraded board and start the game */
+  completeFusionDraft(id: string, boardJson: GameSession["boardJson"]): GameSession | null {
+    const game = games.get(id);
+    if (!game) return null;
+    game.fusionDraftDone = true;
+    game.boardJson = boardJson;
+    game.status = "in_progress";
+    notify(id, { type: "update", fen: game.fen, status: game.status });
+    return game;
   },
 
   /** Reclaim a seat — replaces the existing token for that color */

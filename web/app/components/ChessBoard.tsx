@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Chessboard } from "react-chessboard";
+import { Chessboard, defaultPieces } from "react-chessboard";
+import { fairyPieces } from "./FairyPieces";
+
+interface BoardJson {
+  pieces: Record<string, { kind: string; color: string }>;
+  sideToMove: string;
+  [key: string]: unknown;
+}
 
 interface Props {
   gameId: string;
@@ -9,6 +16,32 @@ interface Props {
   playerColor: "white" | "black";
   readonly?: boolean;
   onNewGame?: () => void;
+  onFenChange?: (fen: string) => void;
+  onSquareClicked?: (square: string) => void;
+}
+
+/**
+ * Map standard piece kinds to react-chessboard piece type codes.
+ * Custom/upgraded pieces get mapped to fairy piece codes using first char of the base piece.
+ */
+const kindToCode: Record<string, string> = {
+  pawn: "P", knight: "N", bishop: "B", rook: "R", queen: "Q", king: "K",
+  archbishop: "A", chancellor: "C", amazon: "Z", camel: "M", zebra: "X", mann: "O",
+};
+
+function boardJsonToPosition(bj: BoardJson): Record<string, { pieceType: string }> {
+  const pos: Record<string, { pieceType: string }> = {};
+  for (const [sq, piece] of Object.entries(bj.pieces)) {
+    const colorPrefix = piece.color === "white" ? "w" : "b";
+    let code = kindToCode[piece.kind];
+    if (!code) {
+      // Upgraded piece like "bishop+j21" — extract base piece
+      const base = piece.kind.split("+")[0];
+      code = kindToCode[base] || "P";
+    }
+    pos[sq] = { pieceType: colorPrefix + code };
+  }
+  return pos;
 }
 
 export default function ChessBoardComponent({
@@ -17,6 +50,8 @@ export default function ChessBoardComponent({
   playerColor,
   readonly: readonlyMode,
   onNewGame,
+  onFenChange,
+  onSquareClicked,
 }: Props) {
   const [fen, setFen] = useState(
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -26,6 +61,12 @@ export default function ChessBoardComponent({
   const [winner, setWinner] = useState<string | undefined>();
   const [evalScore, setEvalScore] = useState<number | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [boardJson, setBoardJson] = useState<BoardJson | null>(null);
+
+  // Click-to-move state
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const [legalMoves, setLegalMoves] = useState<string[]>([]);
+  const [legalTargets, setLegalTargets] = useState<Set<string>>(new Set());
 
   // Subscribe to SSE for real-time updates
   useEffect(() => {
@@ -34,7 +75,7 @@ export default function ChessBoardComponent({
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === "update") {
-        if (data.fen) setFen(data.fen);
+        if (data.fen) { setFen(data.fen); onFenChange?.(data.fen); }
         if (data.status) setStatus(data.status);
         if (data.winner) setWinner(data.winner);
         if (data.eval !== undefined) setEvalScore(data.eval);
@@ -50,12 +91,27 @@ export default function ChessBoardComponent({
       .then((res) => res.json())
       .then((data) => {
         setFen(data.fen);
+        onFenChange?.(data.fen);
         setStatus(data.status);
         setMoves(data.moves || []);
         if (data.winner) setWinner(data.winner);
         if (data.eval !== undefined) setEvalScore(data.eval);
+        if (data.boardJson) setBoardJson(data.boardJson);
       });
   }, [gameId]);
+
+  // Fetch legal moves whenever FEN changes (for click-to-move highlights)
+  useEffect(() => {
+    if (readonlyMode) return;
+    fetch(`/api/games/${gameId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.legalMoves) {
+          setLegalMoves(data.legalMoves);
+        }
+      })
+      .catch(() => {});
+  }, [fen, gameId, readonlyMode]);
 
   const isMyTurn = useCallback(() => {
     const sideToMove = fen.split(" ")[1];
@@ -66,34 +122,15 @@ export default function ChessBoardComponent({
   }, [fen, playerColor]);
 
   const gameOver = status === "checkmate" || status === "stalemate" || status === "draw";
+  const canInteract = !readonlyMode && isMyTurn() && !gameOver && status !== "waiting";
 
-  const onDrop = useCallback(
-    ({
-      piece,
-      sourceSquare,
-      targetSquare,
-    }: {
-      piece: { pieceType: string; position: string; isSparePiece: boolean };
-      sourceSquare: string;
-      targetSquare: string | null;
-    }) => {
-      if (!isMyTurn() || gameOver || !targetSquare) return false;
-
+  // Send a move to the server
+  const sendMove = useCallback(
+    (moveUci: string) => {
       setError(null);
+      setSelectedSquare(null);
+      setLegalTargets(new Set());
 
-      // Build UCI move string
-      let moveUci = sourceSquare + targetSquare;
-      // Check for promotion (pawn reaching last rank)
-      const isPawn = piece.pieceType.toLowerCase().includes("p");
-      const isPromotion =
-        isPawn &&
-        ((playerColor === "white" && targetSquare[1] === "8") ||
-          (playerColor === "black" && targetSquare[1] === "1"));
-      if (isPromotion) {
-        moveUci += "q"; // auto-promote to queen for now
-      }
-
-      // Send move to server
       fetch(`/api/games/${gameId}/move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,18 +142,100 @@ export default function ChessBoardComponent({
             setError(data.error);
           } else {
             setFen(data.fen);
+            onFenChange?.(data.fen);
             setStatus(data.status);
             setMoves(data.moves || []);
             if (data.winner) setWinner(data.winner);
             if (data.eval !== undefined) setEvalScore(data.eval);
+            if (data.boardJson) setBoardJson(data.boardJson);
           }
         })
         .catch(() => setError("Failed to make move"));
+    },
+    [gameId, playerToken, onFenChange]
+  );
 
+  // Handle square click — select piece or make move
+  const onSquareClick = useCallback(
+    ({ square }: { piece?: unknown; square: string }) => {
+      // Fusion draft mode — forward click to parent
+      if (onSquareClicked) { onSquareClicked(square); return; }
+      if (!canInteract) return;
+
+      // If clicking a highlighted target square, make the move
+      if (selectedSquare && legalTargets.has(square)) {
+        let moveUci = selectedSquare + square;
+        // Check for pawn promotion (legal move has 5 chars like "a7a8q")
+        const hasPromo = legalMoves.some(
+          (m) => m.startsWith(selectedSquare + square) && m.length === 5
+        );
+        if (hasPromo) {
+          moveUci += "q"; // auto-promote to queen
+        }
+        sendMove(moveUci);
+        return;
+      }
+
+      // Check if this square has a friendly piece with legal moves
+      const movesFromSquare = legalMoves.filter((m) => m.startsWith(square));
+      if (movesFromSquare.length > 0) {
+        setSelectedSquare(square);
+        setLegalTargets(new Set(movesFromSquare.map((m) => m.substring(2, 4))));
+      } else {
+        // Clicked empty/enemy square with nothing selected — deselect
+        setSelectedSquare(null);
+        setLegalTargets(new Set());
+      }
+    },
+    [canInteract, selectedSquare, legalTargets, legalMoves, sendMove]
+  );
+
+  // Handle drag-and-drop (still works alongside click)
+  const onDrop = useCallback(
+    ({
+      piece,
+      sourceSquare,
+      targetSquare,
+    }: {
+      piece: { pieceType: string; position: string; isSparePiece: boolean };
+      sourceSquare: string;
+      targetSquare: string | null;
+    }) => {
+      if (!canInteract || !targetSquare) return false;
+
+      let moveUci = sourceSquare + targetSquare;
+      const isPawn = piece.pieceType.toLowerCase().includes("p");
+      const isPromotion =
+        isPawn &&
+        ((playerColor === "white" && targetSquare[1] === "8") ||
+          (playerColor === "black" && targetSquare[1] === "1"));
+      if (isPromotion) {
+        moveUci += "q";
+      }
+
+      sendMove(moveUci);
       return true;
     },
-    [gameId, playerToken, playerColor, isMyTurn, gameOver]
+    [canInteract, playerColor, sendMove]
   );
+
+  // Clear selection when turn changes or game updates
+  useEffect(() => {
+    setSelectedSquare(null);
+    setLegalTargets(new Set());
+  }, [fen]);
+
+  // Build square styles for highlights
+  const squareStyles: Record<string, React.CSSProperties> = {};
+  if (selectedSquare) {
+    squareStyles[selectedSquare] = { background: "rgba(255, 255, 0, 0.4)" };
+  }
+  for (const sq of legalTargets) {
+    squareStyles[sq] = {
+      background: "radial-gradient(circle, rgba(0, 0, 0, 0.2) 25%, transparent 25%)",
+      cursor: "pointer",
+    };
+  }
 
   const statusText = () => {
     if (status === "waiting") return "Waiting for opponent to join...";
@@ -143,15 +262,13 @@ export default function ChessBoardComponent({
       </div>
 
       <div style={{ display: "flex", gap: "8px", width: "590px", maxWidth: "100%" }}>
-        {/* Eval bar */}
-        {evalScore !== undefined && (() => {
-          // Convert centipawns to a percentage (sigmoid-ish clamping)
-          // ±500cp maps to 0–100%, clamped at the extremes
-          const clamped = Math.max(-500, Math.min(500, evalScore));
+        {/* Eval bar — always visible, defaults to 0.0 before first eval */}
+        {(() => {
+          const score = evalScore ?? 0;
+          const clamped = Math.max(-500, Math.min(500, score));
           const whitePct = 50 + (clamped / 500) * 50;
-          const displayVal = `${evalScore > 0 ? "+" : ""}${(evalScore / 100).toFixed(1)}`;
-          const isWhiteUp = evalScore >= 0;
-          // When board is flipped, flip the bar too
+          const displayVal = `${score > 0 ? "+" : ""}${(score / 100).toFixed(1)}`;
+          const isWhiteUp = score >= 0;
           const topColor = playerColor === "white" ? "#333" : "#fff";
           const bottomColor = playerColor === "white" ? "#fff" : "#333";
           const topPct = playerColor === "white" ? (100 - whitePct) : whitePct;
@@ -167,19 +284,16 @@ export default function ChessBoardComponent({
               flexDirection: "column",
               position: "relative",
             }}>
-              {/* Top portion */}
               <div style={{
                 background: topColor,
                 transition: "flex 0.3s ease",
                 flex: `${topPct} 0 0%`,
               }} />
-              {/* Bottom portion */}
               <div style={{
                 background: bottomColor,
                 transition: "flex 0.3s ease",
                 flex: `${100 - topPct} 0 0%`,
               }} />
-              {/* Score label */}
               <div style={{
                 position: "absolute",
                 left: "50%",
@@ -200,11 +314,13 @@ export default function ChessBoardComponent({
         <div style={{ width: "560px", maxWidth: "100%", flexShrink: 1, position: "relative" }}>
           <Chessboard
             options={{
-              position: fen,
+              position: boardJson ? boardJsonToPosition(boardJson) : fen,
               boardOrientation: playerColor,
-              allowDragging:
-                !readonlyMode && isMyTurn() && !gameOver && status !== "waiting",
+              allowDragging: canInteract,
               onPieceDrop: onDrop,
+              onSquareClick: onSquareClick,
+              squareStyles: squareStyles,
+              pieces: { ...defaultPieces, ...fairyPieces },
             }}
           />
           {gameOver && (

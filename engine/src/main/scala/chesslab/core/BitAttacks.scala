@@ -17,12 +17,15 @@ package chesslab.core
  */
 object BitAttacks:
 
+  import scala.annotation.tailrec
+
   /**
    * Is the given square attacked by any piece of `byColor`?
    *
-   * Used by the legal move filter: after making a move, check if the
-   * moving side's king square is attacked by the opponent. If yes,
-   * the move is illegal (leaves king in check).
+   * Standard pieces (pawn through king) are checked with hardcoded lookups
+   * at full speed. Custom pieces (index >= 6) are checked via a loop that
+   * reads their attack functions from PieceTypes. If no custom pieces are
+   * registered, the loop exits immediately — zero overhead.
    *
    * @param sq   Sq64 index (0..63) of the square to check
    * @param byColor  the attacking color
@@ -32,6 +35,8 @@ object BitAttacks:
   def isAttacked(sq: Int, byColor: Color, bb: BitBoard): Boolean =
     val enemy = bb.colorBB(byColor)
     val occ = bb.occupied
+
+    // --- Standard pieces: hardcoded, full speed ---
 
     // Pawns — use opponent's attack pattern (reversed direction)
     val pawnIdx = if byColor == Color.White then 1 else 0
@@ -47,7 +52,19 @@ object BitAttacks:
     if (Magics.bishopAttacks(sq, occ) & enemy & (bb.bishops | bb.queens)) != 0L then return true
 
     // Rooks and queens — orthogonal slider attacks (occupancy-dependent)
-    (Magics.rookAttacks(sq, occ) & enemy & (bb.rooks | bb.queens)) != 0L
+    if (Magics.rookAttacks(sq, occ) & enemy & (bb.rooks | bb.queens)) != 0L then return true
+
+    // --- Custom pieces: dynamic loop (only runs if custom pieces exist) ---
+    checkCustomAttacks(sq, enemy, occ, bb, 0)
+
+  /** Check if any custom piece type attacks sq. Returns false immediately if none registered. */
+  @tailrec
+  private def checkCustomAttacks(sq: Int, enemy: Long, occ: Long, bb: BitBoard, ci: Int): Boolean =
+    if ci >= PieceTypes.customs.length then false
+    else
+      val idx = 6 + ci
+      if (PieceTypes.customs(ci).attacks(sq, occ) & enemy & bb.pieces(idx)) != 0L then true
+      else checkCustomAttacks(sq, enemy, occ, bb, ci + 1)
 
   /**
    * Is the given color's king currently in check?
@@ -60,7 +77,8 @@ object BitAttacks:
    * @return true if the king of `color` is in check
    */
   def isInCheck(color: Color, bb: BitBoard): Boolean =
-    isAttacked(bb.kingSq(color), color.opponent, bb)
+    val sq = bb.kingSq(color)
+    sq < 64 && isAttacked(sq, color.opponent, bb)
 
   /**
    * Bitboard of all pieces (either color) that attack the given square.
@@ -74,9 +92,14 @@ object BitAttacks:
    */
   def attacksTo(sq: Int, bb: BitBoard): Long =
     val occ = bb.occupied
-    (Magics.PawnAttacks(1)(sq) & bb.pawns & bb.white) |   // white pawns attacking sq
-    (Magics.PawnAttacks(0)(sq) & bb.pawns & bb.black) |   // black pawns attacking sq
-    (Magics.KnightAttacks(sq) & bb.knights) |
-    (Magics.KingAttacks(sq) & bb.kings) |
-    (Magics.bishopAttacks(sq, occ) & (bb.bishops | bb.queens)) |
-    (Magics.rookAttacks(sq, occ) & (bb.rooks | bb.queens))
+    val standard =
+      (Magics.PawnAttacks(1)(sq) & bb.pawns & bb.white) |   // white pawns attacking sq
+      (Magics.PawnAttacks(0)(sq) & bb.pawns & bb.black) |   // black pawns attacking sq
+      (Magics.KnightAttacks(sq) & bb.knights) |
+      (Magics.KingAttacks(sq) & bb.kings) |
+      (Magics.bishopAttacks(sq, occ) & (bb.bishops | bb.queens)) |
+      (Magics.rookAttacks(sq, occ) & (bb.rooks | bb.queens))
+    // Custom pieces — fold over registered types
+    PieceTypes.customs.zipWithIndex.foldLeft(standard) { case (acc, (cp, ci)) =>
+      acc | (cp.attacks(sq, occ) & bb.pieces(6 + ci))
+    }

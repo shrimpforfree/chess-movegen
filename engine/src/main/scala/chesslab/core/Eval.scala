@@ -117,12 +117,18 @@ object Eval:
   /** Sum material + PST for all pieces of one color. mirror = 0 for White, 56 for Black. */
   private def evalColor(bb: BitBoard, color: Color, mirror: Int): Int =
     val mine = bb.colorBB(color)
-    evalPieces(bb.pawns   & mine, PawnValue,   PawnPST,   mirror, 0) +
-    evalPieces(bb.knights & mine, KnightValue, KnightPST, mirror, 0) +
-    evalPieces(bb.bishops & mine, BishopValue, BishopPST, mirror, 0) +
-    evalPieces(bb.rooks   & mine, RookValue,   RookPST,   mirror, 0) +
-    evalPieces(bb.queens  & mine, QueenValue,  QueenPST,  mirror, 0) +
-    evalPieces(bb.kings   & mine, 0,           KingPST,   mirror, 0)
+    val standard =
+      evalPieces(bb.pawns   & mine, PawnValue,   PawnPST,   mirror, 0) +
+      evalPieces(bb.knights & mine, KnightValue, KnightPST, mirror, 0) +
+      evalPieces(bb.bishops & mine, BishopValue, BishopPST, mirror, 0) +
+      evalPieces(bb.rooks   & mine, RookValue,   RookPST,   mirror, 0) +
+      evalPieces(bb.queens  & mine, QueenValue,  QueenPST,  mirror, 0) +
+      evalPieces(bb.kings   & mine, 0,           KingPST,   mirror, 0)
+    // Custom pieces — loop over registered custom types
+    PieceTypes.customs.zipWithIndex.foldLeft(standard) { case (acc, (cp, ci)) =>
+      val idx = 6 + ci
+      acc + evalPieces(bb.pieces(idx) & mine, cp.value, cp.pst, mirror, 0)
+    }
 
   /** Scan set bits, accumulating material + PST bonus for each piece. */
   @tailrec
@@ -132,5 +138,3 @@ object Eval:
       val sq = java.lang.Long.numberOfTrailingZeros(pieces)
       evalPieces(pieces & (pieces - 1), value, pst, mirror, acc + value + pst(sq ^ mirror))
 
-  /** Backward-compatible wrapper: evaluate a mailbox Board via its embedded BitBoard. */
-  def evaluate(board: Board): Int = evaluate(board.bb)

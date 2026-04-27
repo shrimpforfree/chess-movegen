@@ -1,4 +1,19 @@
-export type GameMode = "human-vs-human" | "human-vs-ai" | "auto";
+export type GameMode = "human-vs-human" | "human-vs-ai" | "auto" | "fusion";
+
+export interface FusionUpgrade {
+  key: string;
+  name: string;
+  description: string;
+}
+
+export interface BoardJson {
+  pieces: Record<string, { kind: string; color: string }>;
+  sideToMove: string;
+  castling: { whiteKingside: boolean; whiteQueenside: boolean; blackKingside: boolean; blackQueenside: boolean };
+  epSquare: string | null;
+  halfmoveClock: number;
+  fullmoveNumber: number;
+}
 
 export type GameStatus =
   | "waiting" // waiting for opponent to join
@@ -11,6 +26,7 @@ export type GameStatus =
 export interface EngineConfig {
   depth?: number;
   timeMs?: number;
+  skillLevel?: number; // 1-99, default 99. Lower = more mistakes.
   useBook?: boolean;
   useHash?: boolean;
   hashSizeMb?: number;
@@ -35,6 +51,9 @@ export interface GameSession {
   winner?: "white" | "black";
   eval?: number; // centipawns, from white's perspective
   positionHistory: Map<string, number>; // FEN position key → count
+  fusionUpgrade?: FusionUpgrade; // the rolled upgrade for fusion mode
+  fusionDraftDone?: boolean; // true after player assigns their upgrade
+  boardJson?: BoardJson; // JSON board state for fusion mode (avoids FEN char issues)
 }
 
 export interface GameEvent {

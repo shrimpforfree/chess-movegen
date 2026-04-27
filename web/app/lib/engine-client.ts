@@ -39,6 +39,20 @@ export async function makeMove(
   return res.json();
 }
 
+export interface GameSetup {
+  key: string;
+  name: string;
+  description: string;
+  fen: string;
+}
+
+export async function getSetups(): Promise<GameSetup[]> {
+  const res = await fetch(`${ENGINE_URL}/setups`);
+  if (!res.ok) throw new Error(`Engine error: ${res.statusText}`);
+  const data = await res.json();
+  return data.setups;
+}
+
 export async function getAiMove(
   fen: string,
   config?: EngineConfig

@@ -55,6 +55,22 @@ export default function EngineConfigPanel({ config, onChange, disabled, label }:
         />
       </label>
 
+      <label style={labelStyle}>
+        Skill Level: {config.skillLevel ?? 99}
+        <input
+          type="range"
+          min={1}
+          max={99}
+          value={config.skillLevel ?? 99}
+          onChange={(e) => update({ skillLevel: Number(e.target.value) })}
+          disabled={disabled}
+          style={{ width: "100%", opacity: disabled ? 0.5 : 1 }}
+        />
+        <span style={{ fontSize: "10px", color: "#999", display: "flex", justifyContent: "space-between" }}>
+          <span>Beginner</span><span>Master</span>
+        </span>
+      </label>
+
       <label style={checkboxRow}>
         <input
           type="checkbox"

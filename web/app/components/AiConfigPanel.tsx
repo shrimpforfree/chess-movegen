@@ -29,26 +29,48 @@ export default function AiConfigPanel({ gameId }: Props) {
     });
   }, [gameId]);
 
+  const [open, setOpen] = useState(false);
+
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: "12px",
-        padding: "16px",
         border: "1px solid #ccc",
         borderRadius: "8px",
         width: "180px",
         alignSelf: "flex-start",
-        maxHeight: "80vh",
-        overflowY: "auto",
+        overflow: "hidden",
       }}
     >
-      <EngineConfigPanel
-        label="AI Settings"
-        config={config}
-        onChange={saveConfig}
-      />
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          padding: "10px 16px",
+          fontSize: "13px",
+          fontWeight: "bold",
+          cursor: "pointer",
+          border: "none",
+          background: "#fafafa",
+          color: "#333",
+          textAlign: "left",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        AI Settings
+        <span style={{ fontSize: "10px", color: "#999" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "12px 16px", maxHeight: "60vh", overflowY: "auto" }}>
+          <EngineConfigPanel
+            label=""
+            config={config}
+            onChange={saveConfig}
+          />
+        </div>
+      )}
     </div>
   );
 }

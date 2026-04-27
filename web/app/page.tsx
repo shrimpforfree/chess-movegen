@@ -1,26 +1,63 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+
+interface Setup {
+  key: string;
+  name: string;
+  description: string;
+  fen: string;
+}
 
 export default function Home() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [joinId, setJoinId] = useState("");
   const [fen, setFen] = useState("");
+  const [setups, setSetups] = useState<Setup[]>([]);
+  const [selectedSetup, setSelectedSetup] = useState<string>("standard");
 
-  const createGame = async (mode: "human-vs-human" | "human-vs-ai" | "auto") => {
+  // Fetch available game setups from the engine
+  useEffect(() => {
+    fetch("/api/setups")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.setups) {
+          setSetups(data.setups);
+        }
+      })
+      .catch(() => {
+        // Engine not running — fall back to standard only
+        setSetups([
+          {
+            key: "standard",
+            name: "Standard Chess",
+            description: "Classic chess",
+            fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+          },
+        ]);
+      });
+  }, []);
+
+  const activeFen = fen.trim() || setups.find((s) => s.key === selectedSetup)?.fen || undefined;
+
+  const createGame = async (mode: "human-vs-human" | "human-vs-ai" | "auto" | "fusion") => {
     setLoading(true);
     const playerToken = Math.random().toString(36).substring(2, 12);
 
     const res = await fetch("/api/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, playerToken, aiDepth: 4, fen: fen.trim() || undefined }),
+      body: JSON.stringify({
+        mode,
+        playerToken,
+        aiDepth: 4,
+        fen: activeFen,
+      }),
     });
     const data = await res.json();
 
-    // Store token so the game page knows we're white
     localStorage.setItem(`game-${data.gameId}-token`, data.playerToken);
     localStorage.setItem(`game-${data.gameId}-color`, data.color);
 
@@ -33,6 +70,8 @@ export default function Home() {
     }
   };
 
+  const selected = setups.find((s) => s.key === selectedSetup);
+
   return (
     <div
       style={{
@@ -41,12 +80,78 @@ export default function Home() {
         alignItems: "center",
         justifyContent: "center",
         minHeight: "100vh",
-        gap: "32px",
+        gap: "28px",
         padding: "20px",
       }}
     >
-      <h1 style={{ fontSize: "48px" }}>ChessLab</h1>
+      <h1 style={{ fontSize: "48px", marginBottom: 0 }}>ChessLab</h1>
 
+      {/* Variant picker */}
+      {setups.length > 1 && (
+        <div style={{ width: "340px" }}>
+          <label
+            style={{
+              fontSize: "14px",
+              color: "#666",
+              marginBottom: "6px",
+              display: "block",
+            }}
+          >
+            Game Variant
+          </label>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px",
+            }}
+          >
+            {setups.map((setup) => (
+              <button
+                key={setup.key}
+                onClick={() => {
+                  setSelectedSetup(setup.key);
+                  setFen("");
+                }}
+                style={{
+                  padding: "10px 8px",
+                  fontSize: "14px",
+                  cursor: "pointer",
+                  border:
+                    selectedSetup === setup.key
+                      ? "2px solid #333"
+                      : "1px solid #ccc",
+                  borderRadius: "8px",
+                  background:
+                    selectedSetup === setup.key ? "#333" : "#fff",
+                  color:
+                    selectedSetup === setup.key ? "#fff" : "#333",
+                  fontWeight:
+                    selectedSetup === setup.key ? "bold" : "normal",
+                  transition: "all 0.15s",
+                }}
+              >
+                {setup.name}
+              </button>
+            ))}
+          </div>
+          {selected && selected.key !== "standard" && (
+            <p
+              style={{
+                fontSize: "13px",
+                color: "#888",
+                marginTop: "8px",
+                textAlign: "center",
+                lineHeight: "1.4",
+              }}
+            >
+              {selected.description}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Game mode buttons */}
       <div
         style={{
           display: "flex",
@@ -88,6 +193,22 @@ export default function Home() {
         </button>
 
         <button
+          onClick={() => createGame("fusion")}
+          disabled={loading}
+          style={{
+            padding: "16px",
+            fontSize: "18px",
+            cursor: "pointer",
+            border: "2px solid #8b5cf6",
+            borderRadius: "8px",
+            background: "#8b5cf6",
+            color: "#fff",
+          }}
+        >
+          Fusion
+        </button>
+
+        <button
           onClick={() => createGame("auto")}
           disabled={loading}
           style={{
@@ -104,10 +225,11 @@ export default function Home() {
         </button>
       </div>
 
+      {/* Custom FEN override */}
       <div style={{ width: "300px" }}>
         <input
           type="text"
-          placeholder="Custom FEN (optional)"
+          placeholder="Custom FEN (overrides variant)"
           value={fen}
           onChange={(e) => setFen(e.target.value)}
           style={{
@@ -122,6 +244,7 @@ export default function Home() {
         />
       </div>
 
+      {/* Join existing game */}
       <div
         style={{
           display: "flex",

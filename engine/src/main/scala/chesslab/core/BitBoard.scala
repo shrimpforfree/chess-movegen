@@ -1,10 +1,13 @@
 package chesslab.core
 
+import scala.annotation.tailrec
+
 /**
  * Immutable board state using bitboards.
  *
- * Each piece type gets a Long (64 bits = 64 squares). Each color gets a Long.
- * Combining them gives any piece-color set: `pawns & white` = all white pawns.
+ * The 6 standard piece types are named fields (zero-cost access, no array).
+ * Custom pieces (index 6+) go in `extras: IArray[Long]` — only allocated
+ * when custom pieces are registered. Standard chess has no extras overhead.
  *
  * epSquare uses Sq64 indexing (0..63), or -1 if no en passant is available.
  */
@@ -21,62 +24,60 @@ case class BitBoard(
   castling: CastlingRights,
   epSquare: Int,
   halfmoveClock: Int,
-  fullmoveNumber: Int
+  fullmoveNumber: Int,
+  hash: Long = 0L,
+  extras: IArray[Long] = BitBoard.EmptyExtras
 ):
 
   // =========================================================================
-  // Derived occupancy — used everywhere in move gen and attack detection.
-  //   occupied = all pieces on the board (pass to Magics slider lookups)
-  //   colorBB  = all pieces of one color (mask out friendly for legal moves)
+  // Piece access by index — standard pieces are direct fields, custom use extras
   // =========================================================================
 
-  /** All occupied squares. Pass this to Magics.bishopAttacks/rookAttacks. */
-  def occupied: Long = white | black
+  /** Get piece bitboard by PieceIdx. */
+  def pieces(idx: Int): Long = idx match
+    case 0 => pawns
+    case 1 => knights
+    case 2 => bishops
+    case 3 => rooks
+    case 4 => queens
+    case 5 => kings
+    case i => if i - 6 < extras.length then extras(i - 6) else 0L
 
-  /** All pieces of the given color. Use to mask out friendly pieces from attacks. */
+  // =========================================================================
+  // Derived occupancy
+  // =========================================================================
+
+  def occupied: Long = white | black
   def colorBB(c: Color): Long = if c == Color.White then white else black
 
   // =========================================================================
-  // Piece lookup — used for display, FEN generation, and evaluation.
-  // Not performance-critical; checks each bitboard sequentially.
+  // Piece lookup
   // =========================================================================
 
-  /** What piece (if any) is on this Sq64 square? Returns (pieceKind, color). */
   def pieceAt(sq: Int): Option[(PieceId, Color)] =
     val bit = 1L << sq
     if (occupied & bit) == 0L then None
     else
       val color = if (white & bit) != 0L then Color.White else Color.Black
-      val kind =
-        if (pawns & bit) != 0L then PieceId.Pawn
-        else if (knights & bit) != 0L then PieceId.Knight
-        else if (bishops & bit) != 0L then PieceId.Bishop
-        else if (rooks & bit) != 0L then PieceId.Rook
-        else if (queens & bit) != 0L then PieceId.Queen
-        else PieceId.King
+      val idx = pieceIdAt(bit)
+      val kind = if idx >= 0 then PieceTypes.indexToId.getOrElse(idx, PieceId.Pawn) else PieceId.Pawn
       Some((kind, color))
 
+  @tailrec
+  private def pieceIdAt(bit: Long, idx: Int = 0): Int =
+    if idx >= PieceTypes.totalCount then -1
+    else if (pieces(idx) & bit) != 0L then idx
+    else pieceIdAt(bit, idx + 1)
+
   // =========================================================================
-  // King square — used by legal move checker to test if king is in check.
-  // numberOfTrailingZeros is a single CPU instruction (BSF/TZCNT), so
-  // deriving it from the bitboard is effectively free.
+  // King square
   // =========================================================================
 
-  /** Sq64 index of the given color's king. */
   def kingSq(c: Color): Int =
     java.lang.Long.numberOfTrailingZeros(kings & colorBB(c))
 
   // =========================================================================
-  // makeMove — apply a move and return the new board.
-  //
-  // Expects `move.from` and `move.to` in Sq64 coordinates (0..63).
-  // Handles normal moves, captures, en passant, castling, and promotion
-  // all via bitwise operations on the piece-type and color boards.
-  //
-  // The core pattern for each piece-type board is:
-  //   (board & ~fromBit & ~toBit) | (if dest is this type, toBit, else 0)
-  // This clears the origin (piece leaves), clears the destination (captured
-  // piece removed), and sets the destination (moving/promoted piece placed).
+  // makeMove
   // =========================================================================
 
   def makeMove(move: Move): BitBoard =
@@ -85,52 +86,51 @@ case class BitBoard(
     val fromBit = 1L << from
     val toBit = 1L << to
 
-    // --- Identify the moving piece ---
     val isWhiteMoving = (white & fromBit) != 0L
     val isPawn = (pawns & fromBit) != 0L
     val isKing = (kings & fromBit) != 0L
     val isRookMoving = (rooks & fromBit) != 0L
     val isCapture = (occupied & toBit) != 0L
 
-    // --- En passant: captured pawn is behind the destination, not on it ---
     val epClearBit =
       if move.flag == MoveFlag.EnPassant then 1L << (if isWhiteMoving then to - 8 else to + 8)
       else 0L
 
-    // --- Castling: the rook also moves (king move handled by normal logic) ---
-    //   Kingside:  rook from +3 (H-file) to +1 (F-file) relative to king origin
-    //   Queenside: rook from -4 (A-file) to -1 (D-file) relative to king origin
     val (rookFromBit, rookToBit) =
       if move.flag == MoveFlag.Castling then
-        if to > from then (1L << (from + 3), 1L << (from + 1))    // kingside
-        else              (1L << (from - 4), 1L << (from - 1))    // queenside
+        if to > from then (1L << (from + 3), 1L << (from + 1))
+        else              (1L << (from - 4), 1L << (from - 1))
       else (0L, 0L)
-    val rookMoveMask = rookFromBit | rookToBit  // XOR this to flip rook from/to
+    val rookMoveMask = rookFromBit | rookToBit
 
-    // --- What piece type ends up at the destination? ---
-    //   Normally the same piece that moved. For promotion, the promo piece.
-    val promoKind = move.promo
-    val destIsPawn   = isPawn && promoKind.isEmpty
-    val destIsKnight = (knights & fromBit) != 0L || promoKind.contains(PieceId.Knight)
-    val destIsBishop = (bishops & fromBit) != 0L || promoKind.contains(PieceId.Bishop)
-    val destIsRook   = isRookMoving              || promoKind.contains(PieceId.Rook)
-    val destIsQueen  = (queens & fromBit) != 0L  || promoKind.contains(PieceId.Queen)
+    // What piece type ends up at the destination?
+    val isPromo = move.promo.isDefined
+    val destIsPawn   = isPawn && !isPromo
+    val destIsKnight = (knights & fromBit) != 0L || (isPromo && move.promo.get == PieceId.Knight)
+    val destIsBishop = (bishops & fromBit) != 0L || (isPromo && move.promo.get == PieceId.Bishop)
+    val destIsRook   = isRookMoving              || (isPromo && move.promo.get == PieceId.Rook)
+    val destIsQueen  = (queens & fromBit) != 0L  || (isPromo && move.promo.get == PieceId.Queen)
     val destIsKing   = isKing
 
-    // --- Update piece-type boards ---
-    //   For each: clear from (piece leaves), clear to (capture), set to (piece arrives).
-    //   epClearBit only applies to pawns (only pawns can be captured en passant).
-    //   rookMoveMask only applies to rooks (XOR flips the castling rook).
-    val newPawns   = (pawns   & ~fromBit & ~toBit & ~epClearBit) | (if destIsPawn   then toBit else 0L)
-    val newKnights = (knights & ~fromBit & ~toBit)               | (if destIsKnight then toBit else 0L)
-    val newBishops = (bishops & ~fromBit & ~toBit)               | (if destIsBishop then toBit else 0L)
-    val newRooks   = ((rooks  & ~fromBit & ~toBit)               | (if destIsRook   then toBit else 0L)) ^ rookMoveMask
-    val newQueens  = (queens  & ~fromBit & ~toBit)               | (if destIsQueen  then toBit else 0L)
-    val newKings   = (kings   & ~fromBit & ~toBit)               | (if destIsKing   then toBit else 0L)
+    // Update each piece board: clear from+to+ep, set dest, flip castling rook
+    val np = (pawns   & ~fromBit & ~toBit & ~epClearBit) | (if destIsPawn   then toBit else 0L)
+    val nn = (knights & ~fromBit & ~toBit)               | (if destIsKnight then toBit else 0L)
+    val nb = (bishops & ~fromBit & ~toBit)               | (if destIsBishop then toBit else 0L)
+    val nr = ((rooks  & ~fromBit & ~toBit)               | (if destIsRook   then toBit else 0L)) ^ rookMoveMask
+    val nq = (queens  & ~fromBit & ~toBit)               | (if destIsQueen  then toBit else 0L)
+    val nk = (kings   & ~fromBit & ~toBit)               | (if destIsKing   then toBit else 0L)
 
-    // --- Update color boards ---
-    //   Mover: clear from (^fromBit), set to (|toBit), flip castling rook (^rookMoveMask).
-    //   Opponent: clear captured piece at to (&~toBit), clear EP capture (&~epClearBit).
+    // Extras: clear from/to/ep, set dest if custom
+    val newExtras =
+      if extras.length == 0 then extras
+      else
+        val clearMask = ~fromBit & ~toBit & ~epClearBit
+        val movingExtraIdx = pieceIdAt(fromBit) - 6
+        IArray.tabulate(extras.length) { i =>
+          val cleared = extras(i) & clearMask
+          if i == movingExtraIdx then cleared | toBit else cleared
+        }
+
     val newWhite =
       if isWhiteMoving then ((white ^ fromBit) | toBit) ^ rookMoveMask
       else white & ~toBit & ~epClearBit
@@ -138,53 +138,73 @@ case class BitBoard(
       if isWhiteMoving then black & ~toBit & ~epClearBit
       else ((black ^ fromBit) | toBit) ^ rookMoveMask
 
-    // --- Castling rights ---
-    //   Revoked when a king or rook moves from its home square,
-    //   or when a rook is captured on its home square.
     val castling1 =
       if isKing then castling.removeKing(turn)
       else if isRookMoving then
-        if from == 7 then castling.removeKingside(Color.White)        // H1
-        else if from == 0 then castling.removeQueenside(Color.White)  // A1
-        else if from == 63 then castling.removeKingside(Color.Black)  // H8
-        else if from == 56 then castling.removeQueenside(Color.Black) // A8
+        if from == 7 then castling.removeKingside(Color.White)
+        else if from == 0 then castling.removeQueenside(Color.White)
+        else if from == 63 then castling.removeKingside(Color.Black)
+        else if from == 56 then castling.removeQueenside(Color.Black)
         else castling
       else castling
     val newCastling =
-      if to == 7 then castling1.removeKingside(Color.White)        // captured rook on H1
-      else if to == 0 then castling1.removeQueenside(Color.White)  // A1
-      else if to == 63 then castling1.removeKingside(Color.Black)  // H8
-      else if to == 56 then castling1.removeQueenside(Color.Black) // A8
+      if to == 7 then castling1.removeKingside(Color.White)
+      else if to == 0 then castling1.removeQueenside(Color.White)
+      else if to == 63 then castling1.removeKingside(Color.Black)
+      else if to == 56 then castling1.removeQueenside(Color.Black)
       else castling1
 
-    // --- En passant square ---
-    //   Set when a pawn double-pushes (16 squares = 2 ranks in Sq64).
-    //   The EP target is the square the pawn skipped over.
     val newEpSquare =
       if isPawn && math.abs(to - from) == 16 then (from + to) / 2
       else -1
 
-    // --- Clocks ---
     val newHalfmoveClock =
       if isPawn || isCapture || move.flag == MoveFlag.EnPassant then 0
       else halfmoveClock + 1
     val newFullmoveNumber =
       if turn == Color.Black then fullmoveNumber + 1 else fullmoveNumber
 
+    // Incremental Zobrist hash update
+    val movingPieceIdx = pieceIdAt(fromBit)
+    val colorOrd = if isWhiteMoving then 0 else 1
+    val destPieceIdx =
+      if isPromo then PieceTypes.idToIndex.getOrElse(move.promo.get, movingPieceIdx)
+      else movingPieceIdx
+    var h = hash
+    // Remove moving piece from origin
+    h ^= Zobrist.sq64PieceKeyByIdx(movingPieceIdx, colorOrd, from)
+    // Place destination piece at target
+    h ^= Zobrist.sq64PieceKeyByIdx(destPieceIdx, colorOrd, to)
+    // Remove captured piece (if any)
+    if isCapture then
+      val capIdx = pieceIdAt(toBit, if movingPieceIdx == 0 then 1 else 0)
+      if capIdx >= 0 then h ^= Zobrist.sq64PieceKeyByIdx(capIdx, 1 - colorOrd, to)
+    // EP capture
+    if move.flag == MoveFlag.EnPassant then
+      val epCapSq = if isWhiteMoving then to - 8 else to + 8
+      h ^= Zobrist.sq64PieceKeyByIdx(0, 1 - colorOrd, epCapSq) // captured pawn
+    // Castling rook
+    if rookMoveMask != 0L then
+      val rookFrom = if to > from then from + 3 else from - 4
+      val rookTo = if to > from then from + 1 else from - 1
+      h ^= Zobrist.sq64PieceKeyByIdx(3, colorOrd, rookFrom)
+      h ^= Zobrist.sq64PieceKeyByIdx(3, colorOrd, rookTo)
+    // Flip side
+    h ^= Zobrist.sq64SideKey
+    // Castling rights change
+    h ^= Zobrist.castlingHash(castling) ^ Zobrist.castlingHash(newCastling)
+    // EP square change
+    if epSquare >= 0 then h ^= Zobrist.sq64EpFileKeys(epSquare % 8)
+    if newEpSquare >= 0 then h ^= Zobrist.sq64EpFileKeys(newEpSquare % 8)
+
     BitBoard(
-      pawns = newPawns, knights = newKnights, bishops = newBishops,
-      rooks = newRooks, queens = newQueens, kings = newKings,
-      white = newWhite, black = newBlack,
-      turn = turn.opponent,
-      castling = newCastling,
-      epSquare = newEpSquare,
-      halfmoveClock = newHalfmoveClock,
-      fullmoveNumber = newFullmoveNumber
+      np, nn, nb, nr, nq, nk, newWhite, newBlack,
+      turn.opponent, newCastling, newEpSquare, newHalfmoveClock, newFullmoveNumber,
+      h, newExtras
     )
 
   // =========================================================================
-  // Debug display — same layout as the existing Board.toString.
-  // Uppercase = White, lowercase = Black, '.' = empty.
+  // Display
   // =========================================================================
 
   override def toString: String =
@@ -196,13 +216,7 @@ case class BitBoard(
         val sq = rank * 8 + file
         val ch = pieceAt(sq) match
           case Some((kind, color)) =>
-            val base =
-              if kind == PieceId.Pawn then 'p'
-              else if kind == PieceId.Knight then 'n'
-              else if kind == PieceId.Bishop then 'b'
-              else if kind == PieceId.Rook then 'r'
-              else if kind == PieceId.Queen then 'q'
-              else 'k'
+            val base = PieceTypes.idToChar.getOrElse(kind, kind.value.head)
             if color == Color.White then base.toUpper else base
           case None => '.'
         sb.append(ch)
@@ -216,54 +230,36 @@ case class BitBoard(
     sb.append(s"  EP: $epStr")
     sb.toString
 
-// ===========================================================================
-// Companion — construction helpers
-// ===========================================================================
 object BitBoard:
 
-  /** Empty board — no pieces, White to move, no castling, no EP. */
+  val EmptyExtras: IArray[Long] =
+    if PieceTypes.customs.length == 0 then IArray.empty[Long]
+    else IArray.fill(PieceTypes.customs.length)(0L)
+
   val empty: BitBoard = BitBoard(
-    0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L,
-    Color.White, CastlingRights.none, -1, 0, 1
+    0L, 0L, 0L, 0L, 0L, 0L,
+    0L, 0L, Color.White, CastlingRights.none, -1, 0, 1
   )
 
-  /**
-   * Convert an existing mailbox Board to a BitBoard.
-   * Useful as a bridge for testing — lets us reuse FenCodec.boardFromFen
-   * to create bitboard positions until FenCodec is updated in a later step.
-   *
-   * Usage:
-   *   val board = FenCodec.boardFromFen(fen).getOrElse(...)
-   *   val bb = BitBoard.fromBoard(board)
-   */
-  def fromBoard(board: Board): BitBoard =
-    val base = empty.copy(
-      turn = board.sideToMove,
-      castling = board.castling,
-      epSquare = board.epSquare.map(Sq64.fromMailbox(_)).getOrElse(-1),
-      halfmoveClock = board.halfmoveClock,
-      fullmoveNumber = board.fullmoveNumber
-    )
-    (0 until 120).foldLeft(base) { (bb, mbxSq) =>
-      board.pieceAt(mbxSq) match
-        case Square.Occupied(piece) =>
-          val sq64 = Sq64.fromMailbox(mbxSq)
-          if sq64 >= 0 then addPiece(bb, sq64, piece.kind, piece.color)
-          else bb
-        case _ => bb
-    }
-
-  /** Set a single piece on the board. Used by fromBoard during construction. */
   private def addPiece(bb: BitBoard, sq: Int, kind: PieceId, color: Color): BitBoard =
     val bit = 1L << sq
-    val withType =
-      if kind == PieceId.Pawn then bb.copy(pawns = bb.pawns | bit)
-      else if kind == PieceId.Knight then bb.copy(knights = bb.knights | bit)
-      else if kind == PieceId.Bishop then bb.copy(bishops = bb.bishops | bit)
-      else if kind == PieceId.Rook then bb.copy(rooks = bb.rooks | bit)
-      else if kind == PieceId.Queen then bb.copy(queens = bb.queens | bit)
-      else if kind == PieceId.King then bb.copy(kings = bb.kings | bit)
-      else bb
-    color match
-      case Color.White => withType.copy(white = withType.white | bit)
-      case Color.Black => withType.copy(black = withType.black | bit)
+    val idx = PieceTypes.idToIndex.getOrElse(kind, -1)
+    if idx < 0 then bb
+    else
+      val withPiece = idx match
+        case 0 => bb.copy(pawns = bb.pawns | bit)
+        case 1 => bb.copy(knights = bb.knights | bit)
+        case 2 => bb.copy(bishops = bb.bishops | bit)
+        case 3 => bb.copy(rooks = bb.rooks | bit)
+        case 4 => bb.copy(queens = bb.queens | bit)
+        case 5 => bb.copy(kings = bb.kings | bit)
+        case i =>
+          val ei = i - 6
+          if ei < bb.extras.length then
+            val newExtras = IArray.tabulate(bb.extras.length)(j =>
+              if j == ei then bb.extras(j) | bit else bb.extras(j))
+            bb.copy(extras = newExtras)
+          else bb
+      color match
+        case Color.White => withPiece.copy(white = withPiece.white | bit)
+        case Color.Black => withPiece.copy(black = withPiece.black | bit)
