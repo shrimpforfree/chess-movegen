@@ -10,7 +10,8 @@ case class Board(
   halfmoveClock: Int,
   fullmoveNumber: Int,
   whiteKingSq: Int,
-  blackKingSq: Int
+  blackKingSq: Int,
+  bb: BitBoard = BitBoard.empty
 ):
 
   def pieceAt(sq: Int): Square = squares(sq)
@@ -92,6 +93,10 @@ case class Board(
     val newSide = sideToMove.opponent
     val newFullmove = if sideToMove == Color.Black then fullmoveNumber + 1 else fullmoveNumber
 
+    // Sync the BitBoard — convert mailbox move to Sq64 and apply
+    val sq64Move = Move(Sq64.fromMailbox(from), Sq64.fromMailbox(to), move.promo, move.flag)
+    val newBb = bb.makeMove(sq64Move)
+
     Board(
       squares = newSquares,
       sideToMove = newSide,
@@ -102,7 +107,8 @@ case class Board(
         else halfmoveClock + 1,
       fullmoveNumber = newFullmove,
       whiteKingSq = newWhiteKingSq,
-      blackKingSq = newBlackKingSq
+      blackKingSq = newBlackKingSq,
+      bb = newBb
     )
 
   override def toString: String =

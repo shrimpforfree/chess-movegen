@@ -66,7 +66,7 @@ object BoardCodec:
       }
 
       result.map { (squares, wk, bk) =>
-        Board(
+        val board = Board(
           squares = squares,
           sideToMove = side,
           castling = CastlingRights(
@@ -81,5 +81,6 @@ object BoardCodec:
           whiteKingSq = wk,
           blackKingSq = bk
         )
+        board.copy(bb = BitBoard.fromBoard(board))
       }
     }
