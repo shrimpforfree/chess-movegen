@@ -195,8 +195,67 @@ object PieceCombiner:
       case None    => traitSuffix
 
   // =========================================================================
+  // Trait subsumption & normalization
+  //
+  // Implication graph:
+  //   Slides(All, r)  ⊇  Slides(Diagonal, r)  and  Slides(Orthogonal, r)
+  //   Slides(dir, 0)  ⊇  Slides(dir, n)       (unlimited range covers limited)
+  //   Slides(dir, m)  ⊇  Slides(dir, n)       when m ≥ n
+  //   Jumps(a, b)     =  Jumps(a, b)           (exact duplicate)
+  //
+  // Merge rule:
+  //   Slides(Diagonal, r) + Slides(Orthogonal, r)  →  Slides(All, r)
+  // =========================================================================
+
+  /** Does direction `a` cover direction `b`? */
+  private def dirCovers(a: SlideDir, b: SlideDir): Boolean =
+    a == b || a == All
+
+  /** Does range `a` cover range `b`? (0 = unlimited = covers everything) */
+  private def rangeCovers(a: Int, b: Int): Boolean =
+    a == 0 || (b > 0 && a >= b)
+
+  /** Does trait `a` make trait `b` completely redundant? */
+  private def subsumes(a: PieceTrait, b: PieceTrait): Boolean = (a, b) match
+    case (Slides(d1, r1), Slides(d2, r2)) => dirCovers(d1, d2) && rangeCovers(r1, r2)
+    case (Jumps(dr1, df1), Jumps(dr2, df2)) => Set(dr1, df1) == Set(dr2, df2)
+    case _ => false
+
+  /** Would `newTrait` add nothing to a piece that already has `existing` traits? */
+  def isRedundant(existing: Vector[PieceTrait], newTrait: PieceTrait): Boolean =
+    existing.exists(e => subsumes(e, newTrait))
+
+  /**
+   * Normalize a trait set: merge complementary directions, remove subsumed traits.
+   *
+   * Examples:
+   *   Slides(Diagonal) + Slides(Orthogonal)        →  Slides(All)
+   *   Slides(Diagonal) + Slides(Diagonal, 2)        →  Slides(Diagonal)
+   *   Slides(All) + Slides(Orthogonal, 1)            →  Slides(All)
+   *   Slides(Diagonal, 2) + Slides(Orthogonal, 2)   →  Slides(All, 2)
+   */
+  def normalizeTraits(traits: Vector[PieceTrait]): Vector[PieceTrait] =
+    // Step 1: merge Diagonal + Orthogonal with matching range into All
+    val merged = mergeComplementary(traits)
+    // Step 2: remove traits subsumed by another in the set
+    removeSubsumed(merged)
+
+  private def mergeComplementary(traits: Vector[PieceTrait]): Vector[PieceTrait] =
+    val diagOpt = traits.collectFirst { case s @ Slides(Diagonal, r) => (s, r) }
+    val orthOpt = traits.collectFirst { case s @ Slides(Orthogonal, r) => (s, r) }
+    (diagOpt, orthOpt) match
+      case (Some((sd, rd)), Some((so, ro))) if rd == ro =>
+        Slides(All, rd) +: traits.filter(t => t != sd && t != so)
+      case _ => traits
+
+  private def removeSubsumed(traits: Vector[PieceTrait]): Vector[PieceTrait] =
+    traits.zipWithIndex.filterNot { case (t, i) =>
+      traits.zipWithIndex.exists { case (other, j) => i != j && subsumes(other, t) }
+    }.map(_._1)
+
+  // =========================================================================
   // Known trait → standard piece mapping
-  // If a trait set matches a known piece exactly, use that instead of creating a new one.
+  // Traits should be normalized before matching.
   // =========================================================================
 
   private val knownPieces: Map[Set[PieceTrait], String] = Map(
@@ -204,18 +263,15 @@ object PieceCombiner:
     Set(Slides(Diagonal))     -> "bishop",
     Set(Slides(Orthogonal))   -> "rook",
     Set(Slides(All))          -> "queen",
-    Set(Slides(Diagonal), Slides(Orthogonal))  -> "queen",   // diagonal + orthogonal = queen
     Set(Slides(All, 1))       -> "king",
-    Set(Slides(Diagonal, 1), Slides(Orthogonal, 1)) -> "king", // diagonal step + orthogonal step = king
     Set(Slides(Diagonal), Jumps(2, 1))     -> "archbishop",
     Set(Slides(Orthogonal), Jumps(2, 1))   -> "chancellor",
     Set(Slides(All), Jumps(2, 1))          -> "amazon",
-    Set(Slides(Diagonal), Slides(Orthogonal), Jumps(2, 1)) -> "amazon", // diag + orth + knight = amazon
     Set(Jumps(1, 3))          -> "camel",
     Set(Jumps(2, 3))          -> "zebra",
   )
 
-  /** Check if a trait set matches a known piece. Returns the known piece name or None. */
+  /** Check if a (normalized) trait set matches a known piece. */
   def matchKnownPiece(traits: Vector[PieceTrait]): Option[String] =
     knownPieces.get(traits.toSet)
 
@@ -223,20 +279,21 @@ object PieceCombiner:
   // Combine — traits in, piece definition out
   // =========================================================================
 
-  /** Combine traits into a piece definition (not yet registered). */
+  /** Combine traits into a piece definition (not yet registered). Normalizes traits. */
   def combine(traits: Vector[PieceTrait], name: Option[String] = None): PieceDefinition =
-    val attackFn = buildAttackFn(traits)
+    val normalized = normalizeTraits(traits)
+    val attackFn = buildAttackFn(normalized)
     val value = estimateValue(attackFn)
     val pst = generatePST(attackFn)
-    val desc = describe(traits)
+    val desc = describe(normalized)
     val moves = bitsToSquares(attackFn(DemoSq, EmptyOcc))
-    val pieceName = name.getOrElse(autoName(None, traits))
-    PieceDefinition(pieceName, traits, attackFn, value, pst, desc, moves)
+    val pieceName = name.getOrElse(autoName(None, normalized))
+    PieceDefinition(pieceName, normalized, attackFn, value, pst, desc, moves)
 
-  /** Combine a base piece with additional traits. */
+  /** Combine a base piece with additional traits. Normalizes the result. */
   def upgrade(basePiece: String, addTraits: Vector[PieceTrait]): PieceDefinition =
     val baseTraits = traitsOf(basePiece)
-    val allTraits = (baseTraits ++ addTraits).distinct
+    val allTraits = normalizeTraits(baseTraits ++ addTraits)
     val name = autoName(Some(basePiece), addTraits)
     combine(allTraits, Some(name))
 

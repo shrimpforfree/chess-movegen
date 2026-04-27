@@ -126,7 +126,7 @@ case class CombineResponse(name: String, fenChar: String, value: Int, descriptio
 
 case class UpgradeJson(key: String, name: String, description: String) derives Encoder.AsObject
 
-case class FusionRollResponse(upgrade: UpgradeJson) derives Encoder.AsObject
+case class FusionRollResponse(upgrade: UpgradeJson, results: Map[String, String]) derives Encoder.AsObject
 
 case class FusionApplyRequest(board: BoardJson, square: String, upgradeKey: String) derives Decoder
 

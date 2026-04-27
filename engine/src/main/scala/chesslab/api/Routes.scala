@@ -66,14 +66,17 @@ object Routes:
       upgrade <- UpgradePool.get(body.upgradeKey).toRight(s"Unknown upgrade: ${body.upgradeKey}")
       piece <- body.board.pieces.get(body.square).toRight(s"No piece on ${body.square}")
       _ <- if piece.kind == "king" then Left("Cannot upgrade the king") else Right(())
+      baseTraits = PieceCombiner.traitsOf(piece.kind)
+      _ <- if piece.kind != "pawn" && PieceCombiner.isRedundant(baseTraits, upgrade.traitDef)
+           then Left(s"${piece.kind.capitalize} already has that ability")
+           else Right(())
       result <- {
-        // Compute the combined traits
-        val baseTraits = PieceCombiner.traitsOf(piece.kind)
-        val allTraits =
+        val allTraits = PieceCombiner.normalizeTraits(
           if piece.kind == "pawn" then Vector(upgrade.traitDef)
-          else (baseTraits ++ Vector(upgrade.traitDef)).distinct
+          else baseTraits :+ upgrade.traitDef
+        )
 
-        // Check if the result matches a known piece (e.g. pawn + diagonal slide = bishop)
+        // Check if the result matches a known piece (e.g. bishop + orth slide = queen)
         val knownName = PieceCombiner.matchKnownPiece(allTraits)
         val (pieceName, value, description, movesFrom) = knownName match
           case Some(name) =>
@@ -92,6 +95,22 @@ object Routes:
         Right(FusionApplyResponse(newBoard, pieceName, value, description, movesFrom.toList))
       }
     yield result
+
+  /** For each upgradable piece type, compute what it becomes with this trait (omit redundant). */
+  private def upgradeResults(traitDef: PieceCombiner.PieceTrait): Map[String, String] =
+    val pieces = List("pawn", "knight", "bishop", "rook", "queen")
+    pieces.flatMap { kind =>
+      val baseTraits = PieceCombiner.traitsOf(kind)
+      if kind != "pawn" && PieceCombiner.isRedundant(baseTraits, traitDef) then None
+      else
+        val allTraits = PieceCombiner.normalizeTraits(
+          if kind == "pawn" then Vector(traitDef)
+          else baseTraits :+ traitDef
+        )
+        val resultName = PieceCombiner.matchKnownPiece(allTraits)
+          .getOrElse(PieceCombiner.autoName(Some(kind), Vector(traitDef)))
+        Some(kind -> resultName)
+    }.toMap
 
   /** Parse a UCI string (e.g. "e2e4", "e7e8q") by matching against legal moves. */
   private def parseUciMove(bb: BitBoard, uci: String): Option[Move] =
@@ -144,10 +163,11 @@ object Routes:
       ).toList
       Ok(PiecesResponse(pieces))
 
-    // GET /fusion/roll → roll one random upgrade for fusion mode
+    // GET /fusion/roll → roll one random upgrade + what each piece type would become
     case GET -> Root / "fusion" / "roll" =>
       val upgrade = UpgradePool.roll()
-      Ok(FusionRollResponse(UpgradeJson(upgrade.key, upgrade.name, upgrade.description)))
+      val results = upgradeResults(upgrade.traitDef)
+      Ok(FusionRollResponse(UpgradeJson(upgrade.key, upgrade.name, upgrade.description), results))
 
     // POST /fusion/apply { board, square, upgradeKey } → apply upgrade to piece, return new board JSON
     case req @ POST -> Root / "fusion" / "apply" =>

@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     try {
       const res = await fetch(`${ENGINE_URL}/fusion/roll`);
       const data = await res.json();
-      fusionUpgrade = data.upgrade;
+      fusionUpgrade = { ...data.upgrade, results: data.results };
     } catch {
       return Response.json({ error: "Engine unavailable" }, { status: 502 });
     }

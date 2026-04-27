@@ -58,6 +58,7 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [upgradeInfo, setUpgradeInfo] = useState<UpgradeInfo | null>(null);
+  const [upgradeSelected, setUpgradeSelected] = useState(false);
   const fusionRef = useRef<FusionDraftRef>(null);
 
   // Fetch legal moves from board JSON
@@ -232,7 +233,22 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
 
   // Square highlights
   const squareStyles: Record<string, React.CSSProperties> = {};
-  if (upgradedPieceSquare && !selectedSquare) {
+
+  // During draft: highlight valid/invalid upgrade targets (only after selecting the upgrade card)
+  if (!draftDone && upgrade.results && upgradeSelected) {
+    for (const [sq, piece] of Object.entries(board.pieces)) {
+      if (piece.color !== "white") continue;
+      if (piece.kind === "king") continue;
+      const canUpgrade = piece.kind in upgrade.results;
+      if (canUpgrade) {
+        squareStyles[sq] = { background: "rgba(139, 92, 246, 0.2)", cursor: "pointer" };
+      } else {
+        squareStyles[sq] = { background: "rgba(239, 68, 68, 0.15)" };
+      }
+    }
+  }
+
+  if (upgradedPieceSquare && !selectedSquare && draftDone) {
     squareStyles[upgradedPieceSquare] = { background: "rgba(139, 92, 246, 0.25)" };
   }
   if (selectedSquare) squareStyles[selectedSquare] = { background: "rgba(255, 255, 0, 0.4)" };
@@ -262,7 +278,7 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
               position={boardJsonToFen(board)}
               orientation="white"
               interactive={canPlay || !draftDone}
-              squareStyles={draftDone ? squareStyles : undefined}
+              squareStyles={squareStyles}
               onPieceDrop={canPlay ? onPieceDrop : undefined}
               onSquareClick={onSquareClick}
             />
@@ -291,13 +307,16 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
               gameId={gameId}
               playerToken={playerToken}
               upgrade={upgrade}
+              onSelectionChange={setUpgradeSelected}
               onDraftComplete={async () => {
-                // Tell the server draft is done (sets boardJson if skipping)
-                await fetch(`/api/games/${gameId}/fusion-draft`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ skip: true, playerToken }),
-                });
+                if (!upgradeInfo) {
+                  // Skipping — tell server to set up standard board
+                  await fetch(`/api/games/${gameId}/fusion-draft`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ skip: true, playerToken }),
+                  });
+                }
                 setDraftDone(true);
                 fetchLegalMoves();
               }}

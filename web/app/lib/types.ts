@@ -4,6 +4,7 @@ export interface FusionUpgrade {
   key: string;
   name: string;
   description: string;
+  results: Record<string, string>; // pieceKind → resultPieceName (omits redundant pieces)
 }
 
 export interface BoardJson {

@@ -192,43 +192,38 @@ object Search:
       else
         TransTable.clear()
 
-        // Search all depths (iterative deepening)
-        val searchResult = (1 to maxDepth).foldLeft(Option.empty[(Move, Int)]) { (prev, depth) =>
+        // Search all depths (iterative deepening), collecting root move scores at each depth
+        val searchResult = (1 to maxDepth).foldLeft(Option.empty[(Move, Int, Vector[(Move, Int)])]) { (prev, depth) =>
           val ordered = prev match
-            case Some((prevBest, _)) =>
+            case Some((prevBest, _, _)) =>
               val (first, rest) = moves.partition(m =>
                 m.from == prevBest.from && m.to == prevBest.to && m.promo == prevBest.promo)
               first ++ orderMoves(bb, rest)
             case None =>
               orderMoves(bb, moves)
 
-          val (best, score, _) = ordered.foldLeft((ordered.head, -Infinity, -Infinity)) {
-            case ((bestMove, bestScore, alpha), move) =>
-              if alpha >= Infinity then (bestMove, bestScore, alpha)
+          val (best, score, _, scores) = ordered.foldLeft((ordered.head, -Infinity, -Infinity, Vector.empty[(Move, Int)])) {
+            case ((bestMove, bestScore, alpha, acc), move) =>
+              if alpha >= Infinity then (bestMove, bestScore, alpha, acc)
               else
                 val score = -negamax(bb.makeMove(move), depth - 1, -Infinity, -alpha)
-                if score > bestScore then (move, score, math.max(alpha, score))
-                else (bestMove, bestScore, alpha)
+                val newAcc = acc :+ (move, score)
+                if score > bestScore then (move, score, math.max(alpha, score), newAcc)
+                else (bestMove, bestScore, alpha, newAcc)
           }
-          Some((best, score))
+          Some((best, score, scores))
         }
 
-        // Apply skill noise: re-evaluate root moves and pick with fuzzy scores
-        if skillNoise > 0 && searchResult.isDefined then
-          applySkillNoise(bb, moves, maxDepth)
-        else searchResult
+        // Apply skill noise using scores already collected during search
+        searchResult.map { (best, score, rootScores) =>
+          if skillNoise > 0 then
+            val noisy = rootScores.map { (move, realScore) =>
+              val noise = rng.nextInt(skillNoise * 2 + 1) - skillNoise
+              (move, realScore, realScore + noise)
+            }
+            val picked = noisy.maxBy(_._3)
+            (picked._1, picked._2) // return real score, not noisy
+          else
+            (best, score)
+        }
 
-  /**
-   * Re-score all root moves at the final depth and add random noise.
-   * The "best" move under noise might not be the actual best — simulating mistakes.
-   * Higher noise = bigger mistakes = lower skill level.
-   */
-  private def applySkillNoise(bb: BitBoard, moves: Vector[Move], depth: Int): Option[(Move, Int)] =
-    val scored = moves.map { move =>
-      val realScore = -negamax(bb.makeMove(move), depth - 1, -Infinity, Infinity)
-      val noise = rng.nextInt(skillNoise * 2 + 1) - skillNoise
-      (move, realScore, realScore + noise)
-    }
-    // Pick the move with the highest noisy score
-    val best = scored.maxBy(_._3)
-    Some((best._1, best._2))  // return the real score, not the noisy one

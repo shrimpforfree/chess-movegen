@@ -23,10 +23,11 @@ interface Props {
   onDraftComplete: () => void;
   onUpgradeApplied: (result: UpgradeResult) => void;
   onUpgradeUndone: () => void;
+  onSelectionChange: (selected: boolean) => void;
 }
 
 const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftPanel(
-  { gameId, playerToken, upgrade, onDraftComplete, onUpgradeApplied, onUpgradeUndone },
+  { gameId, playerToken, upgrade, onDraftComplete, onUpgradeApplied, onUpgradeUndone, onSelectionChange },
   ref
 ) {
   const [selected, setSelected] = useState(false);
@@ -97,7 +98,7 @@ const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftP
 
       {/* Upgrade card */}
       <button
-        onClick={() => !applied && setSelected(!selected)}
+        onClick={() => { if (!applied) { const next = !selected; setSelected(next); onSelectionChange(next); } }}
         disabled={applied}
         style={{
           padding: "12px",
@@ -121,6 +122,18 @@ const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftP
           </div>
         )}
       </button>
+
+      {/* Preview: what each piece becomes */}
+      {selected && !applied && upgrade.results && (
+        <div style={{ fontSize: "12px", color: "#555", padding: "8px", background: "#f5f3ff", borderRadius: "6px" }}>
+          {Object.entries(upgrade.results).map(([kind, result]) => (
+            <div key={kind} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+              <span style={{ textTransform: "capitalize" }}>{kind}</span>
+              <span style={{ color: "#6d28d9", fontWeight: 500 }}>{result}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {resultInfo && (
         <div style={{ fontSize: "12px", color: "#333", padding: "8px", background: "#f0fdf4", borderRadius: "6px" }}>
