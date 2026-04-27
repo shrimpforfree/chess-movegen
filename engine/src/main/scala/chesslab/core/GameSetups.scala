@@ -70,6 +70,85 @@ object GameSetups:
       name = "Chaos",
       description = "Archbishop, Chancellor, Amazon, Camel, Zebra, Mann — all on one board. Good luck.",
       fen = "raczkmxo/pppppppp/8/8/8/8/PPPPPPPP/RACZKMXO w KQkq - 0 1"
+    ),
+
+    // --- Silly standard-piece variants ---
+
+    Setup(
+      key = "queens-gambit",
+      name = "Queen's Gambit",
+      description = "Queens start in the center. The back rank is just vibes.",
+      fen = "rnbk1bnr/pppppppp/3q4/8/8/3Q4/PPPPPPPP/RNB1KBNR w KQ - 0 1"
+    ),
+
+    Setup(
+      key = "backwards",
+      name = "Backwards",
+      description = "Armies start on the wrong side. Pawns march the wrong way. Chaos.",
+      fen = "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1"
+    ),
+
+    Setup(
+      key = "trench-war",
+      name = "Trench War",
+      description = "Both armies start in the middle, nose to nose. Immediately violent.",
+      fen = "8/8/rnbqkbnr/pppppppp/PPPPPPPP/RNBQKBNR/8/8 w - - 0 1"
+    ),
+
+    Setup(
+      key = "kings-crossing",
+      name = "King's Crossing",
+      description = "Kings start in the center of the board, face to face. Nowhere to hide.",
+      fen = "rnbq1bnr/pppppppp/8/4k3/4K3/8/PPPPPPPP/RNBQ1BNR w - - 0 1"
+    ),
+
+    Setup(
+      key = "peasant-revolt",
+      name = "Peasant Revolt",
+      description = "White has pawns, rooks, and a king. Black has the full army. Viva la revolución.",
+      fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQ - 0 1"
+    ),
+
+    Setup(
+      key = "tower-defense",
+      name = "Tower Defense",
+      description = "Double pawn wall with rooks and queen behind. Hold the line!",
+      fen = "rnbqkbnr/pppppppp/8/8/PPPPPPPP/PPPPPPPP/8/R2QK2R w KQ - 0 1"
+    ),
+
+    Setup(
+      key = "queen-army",
+      name = "Queen Army",
+      description = "Every piece is a queen. Total carnage by move 2.",
+      fen = "qqqqkqqq/pppppppp/8/8/8/8/PPPPPPPP/QQQQKQQQ w - - 0 1"
+    ),
+
+    Setup(
+      key = "the-wall",
+      name = "The Wall",
+      description = "Kings stare at each other across a wall of pawns. Claustrophobic.",
+      fen = "4k3/pppppppp/8/PPPPPPPP/pppppppp/8/PPPPPPPP/4K3 w - - 0 1"
+    ),
+
+    Setup(
+      key = "scramble",
+      name = "Scramble",
+      description = "Pieces shuffled randomly behind the pawns. No two games alike.",
+      fen = "nbrqknrb/pppppppp/8/8/8/8/PPPPPPPP/NBRQKNRB w - - 0 1"
+    ),
+
+    Setup(
+      key = "horde",
+      name = "Horde",
+      description = "White has 32 pawns. Black has a normal army. Swarm!",
+      fen = "rnbqkbnr/pppppppp/8/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP/4K3 w - - 0 1"
+    ),
+
+    Setup(
+      key = "boss-fight",
+      name = "Boss Fight",
+      description = "White has three queens, no pawns. Black has the full army. Go hunting.",
+      fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1Q1QKQ2 w - - 0 1"
     )
   )
 

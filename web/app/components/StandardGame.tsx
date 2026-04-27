@@ -24,7 +24,7 @@ const ADS = [
 ];
 
 export default function StandardGame({ gameId, playerToken, playerColor, plusMode, onNewGame }: Props) {
-  const [fen, setFen] = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+  const [fen, setFen] = useState("");
   const [status, setStatus] = useState("in_progress");
   const [moves, setMoves] = useState<string[]>([]);
   const [winner, setWinner] = useState<string>();
@@ -267,6 +267,8 @@ export default function StandardGame({ gameId, playerToken, playerColor, plusMod
     ? (status === "checkmate" ? `Checkmate! ${winner} wins!` : status === "stalemate" ? "Stalemate!" : "Draw!")
     : status === "check" ? (isMyTurn ? "You are in check!" : "Opponent in check")
     : isMyTurn ? "Your turn" : "AI thinking...";
+
+  if (!fen) return <div style={{ padding: "40px", textAlign: "center" }}>Loading...</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
