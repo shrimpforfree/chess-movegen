@@ -37,6 +37,11 @@ export default function StandardGame({ gameId, playerToken, playerColor, plusMod
   const [adCountdown, setAdCountdown] = useState(0);
   const [adIndex, setAdIndex] = useState(0);
   const [spawnedSquare, setSpawnedSquare] = useState<string | null>(null);
+  // Mystery wheel
+  const [coins, setCoins] = useState(10);
+  const [wheelSpinning, setWheelSpinning] = useState(false);
+  const [wheelResult, setWheelResult] = useState<{ text: string; color: string; emoji: string } | null>(null);
+  const [wheelTick, setWheelTick] = useState(0);
 
   // Fetch game state
   const fetchState = useCallback(() => {
@@ -93,6 +98,7 @@ export default function StandardGame({ gameId, playerToken, playerColor, plusMod
       .then(r => r.json())
       .then(data => {
         if (data.error) { setError(data.error); fetchState(); return; }
+        if (plusMode) setCoins(prev => prev + 3);
         const playerFen = data.playerFen || data.fen;
         const finalFen = data.fen;
 
@@ -188,6 +194,70 @@ export default function StandardGame({ gameId, playerToken, playerColor, plusMod
 
   const currentAd = ADS[adIndex % ADS.length];
 
+  // Mystery wheel
+  const WHEEL_FACES = [
+    { text: "KNIGHT", emoji: "\u265E", color: "#3b82f6" },
+    { text: "BISHOP", emoji: "\u265D", color: "#8b5cf6" },
+    { text: "ROOK", emoji: "\u265C", color: "#0891b2" },
+    { text: "QUEEN", emoji: "\u265B", color: "#16a34a" },
+    { text: "WARP", emoji: "\uD83C\uDF00", color: "#f59e0b" },
+    { text: "???", emoji: "\uD83C\uDF1A", color: "#dc2626" },
+    { text: "GOLD", emoji: "\u2B50", color: "#ca8a04" },
+    { text: "OOPS", emoji: "\uD83D\uDCA8", color: "#ef4444" },
+  ];
+
+  const spinWheel = () => {
+    if (coins < 10 || wheelSpinning) return;
+    setCoins(prev => prev - 10);
+    setWheelSpinning(true);
+    setWheelResult(null);
+
+    const totalTicks = 20 + Math.floor(Math.random() * 10);
+
+    const doTick = (tick: number) => {
+      setWheelTick(tick);
+      if (tick >= totalTicks) {
+        // Call server for real outcome
+        fetch(`/api/games/${gameId}/mystery-wheel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerToken }),
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data.outcome === "coins") {
+              setCoins(prev => prev + data.amount);
+              setWheelResult({ text: `+${data.amount} gold!`, color: "#ca8a04", emoji: "\u2B50" });
+            } else if (data.outcome === "spawn") {
+              const emoji = { knight: "\u265E", bishop: "\u265D", rook: "\u265C", queen: "\u265B" }[data.piece as string] || "\u265F";
+              const color = { knight: "#3b82f6", bishop: "#8b5cf6", rook: "#0891b2", queen: "#16a34a" }[data.piece as string] || "#16a34a";
+              setWheelResult({ text: `FREE ${(data.piece as string).toUpperCase()}!`, color, emoji });
+              if (data.fen) { setFen(data.fen); setSpawnedSquare(data.square); setTimeout(() => setSpawnedSquare(null), 3000); }
+            } else if (data.outcome === "teleport") {
+              setWheelResult({ text: `${(data.piece as string).toUpperCase()} WARPED!`, color: "#f59e0b", emoji: "\uD83C\uDF00" });
+              if (data.fen) setFen(data.fen);
+            } else if (data.outcome === "lose_pawn") {
+              setWheelResult({ text: "LOST A PAWN!", color: "#ef4444", emoji: "\uD83D\uDCA8" });
+              if (data.fen) setFen(data.fen);
+            } else if (data.outcome === "disaster") {
+              setWheelResult({ text: `${data.count} ENEMY QUEENS!`, color: "#dc2626", emoji: "\uD83D\uDCA5" });
+              if (data.fen) setFen(data.fen);
+            }
+            fetchState();
+            setTimeout(() => { setWheelSpinning(false); setWheelResult(null); }, 2500);
+          })
+          .catch(() => { setWheelSpinning(false); setError("Wheel failed"); });
+        return;
+      }
+      // Accelerating delay: starts fast (60ms), slows to ~300ms
+      const delay = 60 + Math.floor((tick / totalTicks) * 240);
+      setTimeout(() => doTick(tick + 1), delay);
+    };
+    doTick(0);
+  };
+
+  const spinningFace = WHEEL_FACES[wheelTick % WHEEL_FACES.length];
+
   // Spawned pawn highlight
   if (spawnedSquare) {
     squareStyles[spawnedSquare] = { background: "rgba(34, 197, 94, 0.4)" };
@@ -209,11 +279,54 @@ export default function StandardGame({ gameId, playerToken, playerColor, plusMod
             <ChessBoard
               position={fen}
               orientation={playerColor}
-              interactive={canInteract}
+              interactive={canInteract && !wheelSpinning}
               squareStyles={squareStyles}
               onPieceDrop={onPieceDrop}
               onSquareClick={onSquareClick}
             />
+            {/* Coin counter — top right */}
+            {plusMode && (
+              <div style={{
+                position: "absolute", top: "8px", right: "8px", zIndex: 5,
+                padding: "4px 10px", borderRadius: "12px",
+                background: "rgba(0,0,0,0.6)", color: "#fde68a",
+                fontSize: "14px", fontWeight: "bold",
+                display: "flex", alignItems: "center", gap: "4px",
+              }}>
+                <span style={{ fontSize: "16px" }}>{"\u2B50"}</span> {coins}
+              </div>
+            )}
+            {/* Mystery wheel overlay */}
+            {wheelSpinning && (
+              <div style={{
+                position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(0,0,0,0.8)", borderRadius: "4px", zIndex: 10, flexDirection: "column", gap: "16px",
+              }}>
+                {wheelResult ? (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "60px", marginBottom: "8px" }}>{wheelResult.emoji}</div>
+                    <div style={{ fontSize: "28px", fontWeight: "bold", color: wheelResult.color }}>
+                      {wheelResult.text}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "14px", color: "#999", marginBottom: "8px" }}>MYSTERY WHEEL</div>
+                    <div style={{
+                      fontSize: "60px", width: "120px", height: "120px",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "#1a1a2e", borderRadius: "16px", border: `3px solid ${spinningFace.color}`,
+                      transition: "border-color 0.05s",
+                    }}>
+                      {spinningFace.emoji}
+                    </div>
+                    <div style={{ fontSize: "20px", fontWeight: "bold", color: spinningFace.color, marginTop: "8px" }}>
+                      {spinningFace.text}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {gameOver && <GameOverOverlay status={status} winner={winner} onNewGame={onNewGame} />}
             {/* Ad popup overlay */}
             {showAd && (
@@ -260,20 +373,34 @@ export default function StandardGame({ gameId, playerToken, playerColor, plusMod
         </div>
       </div>
 
-      {/* Watch Ad button — only in plus mode when losing */}
-      {showAdButton && (
-        <div style={{ alignSelf: "flex-start" }}>
+      {/* Plus mode buttons */}
+      {plusMode && !gameOver && (
+        <div style={{ alignSelf: "flex-start", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {showAdButton && (
+            <button
+              onClick={startAd}
+              disabled={showAd || wheelSpinning}
+              style={{
+                padding: "6px 14px", fontSize: "12px", cursor: "pointer",
+                border: "1px solid #d4d4d4", borderRadius: "6px",
+                background: "linear-gradient(135deg, #fef3c7, #fde68a)",
+                color: "#92400e", fontWeight: 600,
+              }}
+            >
+              Watch Ad for Free Pawn
+            </button>
+          )}
           <button
-            onClick={startAd}
-            disabled={showAd}
+            onClick={spinWheel}
+            disabled={coins < 10 || wheelSpinning || showAd}
             style={{
-              padding: "6px 14px", fontSize: "12px", cursor: "pointer",
-              border: "1px solid #d4d4d4", borderRadius: "6px",
-              background: "linear-gradient(135deg, #fef3c7, #fde68a)",
-              color: "#92400e", fontWeight: 600,
+              padding: "6px 14px", fontSize: "12px", cursor: coins >= 10 ? "pointer" : "default",
+              border: "1px solid #7c3aed", borderRadius: "6px",
+              background: coins >= 10 ? "linear-gradient(135deg, #8b5cf6, #6d28d9)" : "#e5e7eb",
+              color: coins >= 10 ? "#fff" : "#9ca3af", fontWeight: 600,
             }}
           >
-            Watch Ad for Free Pawn
+            Mystery {"\u2B50"}10
           </button>
         </div>
       )}
