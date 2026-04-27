@@ -91,8 +91,7 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
   const gameOver = status === "checkmate" || status === "stalemate" || status === "draw";
   const canPlay = draftDone && isMyTurn && !gameOver;
 
-  // Send move to server
-  // Validate locally
+  // Validate move locally against the legal moves list
   const buildMoveUci = useCallback((from: string, to: string): string | null => {
     const base = from + to;
     const match = legalMoves.find(m => m.startsWith(base));
@@ -100,11 +99,59 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
     return match.length === 5 ? base + "q" : base;
   }, [legalMoves]);
 
+  // Apply move to local board state immediately (optimistic update).
+  // We already know the move is legal — no reason to wait for the server.
+  const applyMoveLocally = useCallback((moveUci: string) => {
+    const from = moveUci.substring(0, 2);
+    const to = moveUci.substring(2, 4);
+    const promo = moveUci.length === 5 ? moveUci[4] : null;
+
+    setBoard(prev => {
+      const newPieces = { ...prev.pieces };
+      const piece = newPieces[from];
+      if (!piece) return prev;
+
+      delete newPieces[from];
+
+      // Promotion: swap kind
+      if (promo) {
+        const promoMap: Record<string, string> = { q: "queen", r: "rook", b: "bishop", n: "knight" };
+        newPieces[to] = { kind: promoMap[promo] || "queen", color: piece.color };
+      } else {
+        newPieces[to] = piece;
+      }
+
+      // En passant: remove the captured pawn
+      if (piece.kind === "pawn" && to === prev.epSquare) {
+        const capturedSq = to[0] + from[1]; // same file as target, same rank as source
+        delete newPieces[capturedSq];
+      }
+
+      // Castling: move the rook too
+      if (piece.kind === "king" && Math.abs(to.charCodeAt(0) - from.charCodeAt(0)) === 2) {
+        const rank = from[1];
+        if (to[0] === "g") { // kingside
+          newPieces["f" + rank] = newPieces["h" + rank];
+          delete newPieces["h" + rank];
+        } else if (to[0] === "c") { // queenside
+          newPieces["d" + rank] = newPieces["a" + rank];
+          delete newPieces["a" + rank];
+        }
+      }
+
+      return { ...prev, pieces: newPieces, sideToMove: prev.sideToMove === "white" ? "black" : "white" as string };
+    });
+    setLegalMoves([]); // clear until server sends new ones
+  }, []);
+
   const sendMove = useCallback((moveUci: string) => {
     setError(null);
     setSelectedSquare(null);
     setLegalTargets(new Set());
     setThinking(true);
+
+    // Instant feedback — move the piece now
+    applyMoveLocally(moveUci);
 
     fetch(`/api/games/${gameId}/move`, {
       method: "POST",
@@ -117,13 +164,11 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
         if (data.error) { setError(data.error); fetchLegalMoves(); return; }
         if (data.aiError) setError(data.aiError);
 
-        // Player's board state (before AI)
-        const playerBoard = data.playerBoardJson || data.boardJson;
         const finalBoard = data.boardJson;
 
-        if (playerBoard && finalBoard && JSON.stringify(playerBoard) !== JSON.stringify(finalBoard)) {
-          // AI also moved — show player's position first, then AI after delay
-          setBoard(playerBoard);
+        // Server response includes AI's move too — show it after a short delay
+        // so the player can see where the AI moved from/to
+        if (finalBoard) {
           setTimeout(() => {
             setBoard(finalBoard);
             if (data.status) setStatus(data.status);
@@ -131,9 +176,8 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
             if (data.winner) setWinner(data.winner);
             if (data.eval !== undefined) setEvalScore(data.eval);
             fetchLegalMoves();
-          }, 400);
+          }, 300);
         } else {
-          if (data.boardJson) setBoard(data.boardJson);
           if (data.status) setStatus(data.status);
           if (data.moves) setMoves(data.moves);
           if (data.winner) setWinner(data.winner);
@@ -142,7 +186,7 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
         }
       })
       .catch(() => { setThinking(false); setError("Failed to make move"); fetchLegalMoves(); });
-  }, [gameId, playerToken, fetchLegalMoves]);
+  }, [gameId, playerToken, fetchLegalMoves, applyMoveLocally]);
 
   const onPieceDrop = useCallback((from: string, to: string) => {
     if (!canPlay) return false;
