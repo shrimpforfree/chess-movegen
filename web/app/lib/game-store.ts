@@ -1,10 +1,15 @@
-import { GameSession, GameEvent, GameMode } from "./types";
+import { GameSession, GameEvent, GameMode, EngineConfig } from "./types";
 
 const games = new Map<string, GameSession>();
 const listeners = new Map<string, Set<(event: GameEvent) => void>>();
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
+}
+
+/** Extract position key from FEN (excludes halfmove and fullmove counters) */
+function positionKey(fen: string): string {
+  return fen.split(" ").slice(0, 4).join(" ");
 }
 
 function parseStatus(engineStatus: string): {
@@ -30,19 +35,20 @@ function notify(gameId: string, event: GameEvent) {
 }
 
 export const gameStore = {
-  create(mode: GameMode, playerToken: string, aiDepth = 4): GameSession {
+  create(mode: GameMode, playerToken: string, aiDepth = 6, customFen?: string): GameSession {
     const id = generateId();
-    const startFen =
+    const startFen = customFen ||
       "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     const session: GameSession = {
       id,
       fen: startFen,
       moves: [],
       mode,
-      status: mode === "human-vs-ai" ? "in_progress" : "waiting",
+      status: mode === "human-vs-ai" || mode === "auto" ? "in_progress" : "waiting",
       white: playerToken,
-      black: mode === "human-vs-ai" ? "ai" : null,
+      black: mode === "human-vs-ai" ? "ai" : mode === "auto" ? "auto" : null,
       aiDepth,
+      positionHistory: new Map([[positionKey(startFen), 1]]),
     };
     games.set(id, session);
     return session;
@@ -79,9 +85,19 @@ export const gameStore = {
     const { status, winner } = parseStatus(engineStatus);
     game.fen = newFen;
     game.moves.push(moveUci);
-    game.status = status;
-    if (winner) game.winner = winner;
     if (evalScore !== undefined) game.eval = evalScore;
+
+    // Check threefold repetition
+    const key = positionKey(newFen);
+    const count = (game.positionHistory.get(key) || 0) + 1;
+    game.positionHistory.set(key, count);
+
+    if (count >= 3) {
+      game.status = "draw";
+    } else {
+      game.status = status;
+      if (winner) game.winner = winner;
+    }
 
     notify(gameId, {
       type: "update",
@@ -92,6 +108,15 @@ export const gameStore = {
       eval: game.eval,
     });
 
+    return game;
+  },
+
+  updateConfig(id: string, target: "ai" | "white" | "black", config: EngineConfig): GameSession | null {
+    const game = games.get(id);
+    if (!game) return null;
+    if (target === "ai") game.aiConfig = config;
+    else if (target === "white") game.whiteConfig = config;
+    else game.blackConfig = config;
     return game;
   },
 

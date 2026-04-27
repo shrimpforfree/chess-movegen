@@ -1,5 +1,17 @@
 const ENGINE_URL = process.env.ENGINE_URL || "http://localhost:8080";
 
+export interface EngineConfig {
+  depth?: number;
+  timeMs?: number;
+  useBook?: boolean;
+  useHash?: boolean;
+  hashSizeMb?: number;
+  contempt?: number;
+  useNullMove?: boolean;
+  nullMoveDepthReduction?: number;
+  nullMoveThreshold?: number;
+}
+
 export async function getLegalMoves(fen: string): Promise<string[]> {
   const res = await fetch(`${ENGINE_URL}/legal-moves`, {
     method: "POST",
@@ -29,12 +41,12 @@ export async function makeMove(
 
 export async function getAiMove(
   fen: string,
-  depth: number
-): Promise<{ move: string; fen: string; status: string; eval?: number }> {
+  config?: EngineConfig
+): Promise<{ move: string; fen: string; status: string; eval: number }> {
   const res = await fetch(`${ENGINE_URL}/ai-move`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fen, depth }),
+    body: JSON.stringify({ fen, config }),
   });
   if (!res.ok) {
     const err = await res.json();

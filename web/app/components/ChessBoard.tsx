@@ -7,12 +7,16 @@ interface Props {
   gameId: string;
   playerToken: string;
   playerColor: "white" | "black";
+  readonly?: boolean;
+  onNewGame?: () => void;
 }
 
 export default function ChessBoardComponent({
   gameId,
   playerToken,
   playerColor,
+  readonly: readonlyMode,
+  onNewGame,
 }: Props) {
   const [fen, setFen] = useState(
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -61,7 +65,7 @@ export default function ChessBoardComponent({
     );
   }, [fen, playerColor]);
 
-  const gameOver = status === "checkmate" || status === "stalemate";
+  const gameOver = status === "checkmate" || status === "stalemate" || status === "draw";
 
   const onDrop = useCallback(
     ({
@@ -118,6 +122,7 @@ export default function ChessBoardComponent({
     if (status === "waiting") return "Waiting for opponent to join...";
     if (status === "checkmate") return `Checkmate! ${winner} wins!`;
     if (status === "stalemate") return "Stalemate — draw!";
+    if (status === "draw") return "Draw — threefold repetition!";
     if (status === "check")
       return isMyTurn() ? "You are in check!" : "Opponent is in check";
     if (isMyTurn()) return "Your turn";
@@ -192,16 +197,61 @@ export default function ChessBoardComponent({
           );
         })()}
 
-        <div style={{ width: "560px", maxWidth: "100%", flexShrink: 1 }}>
+        <div style={{ width: "560px", maxWidth: "100%", flexShrink: 1, position: "relative" }}>
           <Chessboard
             options={{
               position: fen,
               boardOrientation: playerColor,
               allowDragging:
-                isMyTurn() && !gameOver && status !== "waiting",
+                !readonlyMode && isMyTurn() && !gameOver && status !== "waiting",
               onPieceDrop: onDrop,
             }}
           />
+          {gameOver && (
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(0, 0, 0, 0.6)",
+              borderRadius: "4px",
+            }}>
+              <div style={{
+                background: "#fff",
+                padding: "24px 40px",
+                borderRadius: "12px",
+                textAlign: "center",
+              }}>
+                <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "8px" }}>
+                  {status === "checkmate" ? "Checkmate" : status === "draw" ? "Draw" : "Stalemate"}
+                </div>
+                <div style={{ fontSize: "16px", color: "#666", marginBottom: onNewGame ? "16px" : 0 }}>
+                  {status === "checkmate"
+                    ? `${winner && winner[0].toUpperCase() + winner.slice(1)} wins`
+                    : status === "draw"
+                    ? "Threefold repetition"
+                    : "Draw"}
+                </div>
+                {onNewGame && (
+                  <button
+                    onClick={onNewGame}
+                    style={{
+                      padding: "10px 24px",
+                      fontSize: "14px",
+                      cursor: "pointer",
+                      border: "2px solid #333",
+                      borderRadius: "8px",
+                      background: "#333",
+                      color: "#fff",
+                    }}
+                  >
+                    New Game
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import ChessBoard from "@/app/components/ChessBoard";
+import AutoPlayPanel, { type AutoPlayRef } from "@/app/components/AutoPlayPanel";
+import AiConfigPanel from "@/app/components/AiConfigPanel";
 
 export default function GamePage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const gameId = params.id;
 
   const [playerToken, setPlayerToken] = useState<string | null>(null);
@@ -17,6 +20,8 @@ export default function GamePage() {
   const [error, setError] = useState<string | null>(null);
   const [needsReclaim, setNeedsReclaim] = useState(false);
   const [gameMode, setGameMode] = useState<string | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const autoRef = useRef<AutoPlayRef>(null);
 
   const reclaim = async (color: "white" | "black") => {
     const token = Math.random().toString(36).substring(2, 12);
@@ -37,52 +42,79 @@ export default function GamePage() {
     setNeedsReclaim(false);
   };
 
-  useEffect(() => {
-    // Check if we already have a token for this game in localStorage
-    const storedToken = localStorage.getItem(`game-${gameId}-token`);
-    const storedColor = localStorage.getItem(
-      `game-${gameId}-color`
-    ) as "white" | "black" | null;
-
-    if (storedToken && storedColor) {
-      setPlayerToken(storedToken);
-      setPlayerColor(storedColor);
-      setLoading(false);
-      return;
-    }
-
-    // No stored token — try to join the game as black
-    const token = Math.random().toString(36).substring(2, 12);
-    fetch(`/api/games/${gameId}`, {
+  const createNewGame = async () => {
+    const playerToken = Math.random().toString(36).substring(2, 12);
+    const res = await fetch("/api/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playerToken: token }),
-    })
+      body: JSON.stringify({ mode: gameMode, playerToken, aiDepth: 4 }),
+    });
+    const data = await res.json();
+    localStorage.setItem(`game-${data.gameId}-token`, data.playerToken);
+    localStorage.setItem(`game-${data.gameId}-color`, data.color);
+    router.push(`/game/${data.gameId}`);
+  };
+
+  useEffect(() => {
+    // First, fetch game info to check mode
+    fetch(`/api/games/${gameId}`)
       .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          // Game is full — offer to take control
-          fetch(`/api/games/${gameId}`)
-            .then((res) => res.json())
-            .then((gameData) => {
-              if (gameData.error) {
-                setError(gameData.error);
-              } else {
-                setGameMode(gameData.mode);
-                setNeedsReclaim(true);
-              }
-              setLoading(false);
-            });
+      .then((gameData) => {
+        if (gameData.error) {
+          router.replace("/");
           return;
         }
-        localStorage.setItem(`game-${gameId}-token`, data.playerToken);
-        localStorage.setItem(`game-${gameId}-color`, data.color);
-        setPlayerToken(data.playerToken);
-        setPlayerColor(data.color);
-        setLoading(false);
+
+        setGameMode(gameData.mode);
+
+        // Auto mode — spectator view, no joining needed
+        if (gameData.mode === "auto") {
+          setPlayerToken("spectator");
+          setPlayerColor("white");
+          setLoading(false);
+          return;
+        }
+
+        // Check if we already have a token for this game in localStorage
+        const storedToken = localStorage.getItem(`game-${gameId}-token`);
+        const storedColor = localStorage.getItem(
+          `game-${gameId}-color`
+        ) as "white" | "black" | null;
+
+        if (storedToken && storedColor) {
+          setPlayerToken(storedToken);
+          setPlayerColor(storedColor);
+          setLoading(false);
+          return;
+        }
+
+        // No stored token — try to join the game as black
+        const token = Math.random().toString(36).substring(2, 12);
+        fetch(`/api/games/${gameId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerToken: token }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.error) {
+              setNeedsReclaim(true);
+              setLoading(false);
+              return;
+            }
+            localStorage.setItem(`game-${gameId}-token`, data.playerToken);
+            localStorage.setItem(`game-${gameId}-color`, data.color);
+            setPlayerToken(data.playerToken);
+            setPlayerColor(data.color);
+            setLoading(false);
+          })
+          .catch(() => {
+            setError("Failed to join game");
+            setLoading(false);
+          });
       })
       .catch(() => {
-        setError("Failed to join game");
+        setError("Failed to load game");
         setLoading(false);
       });
   }, [gameId]);
@@ -156,16 +188,52 @@ export default function GamePage() {
       >
         &larr; Home
       </Link>
-      <h1 style={{ marginBottom: "8px" }}>Chess Game</h1>
+      <h1 style={{ marginBottom: "8px" }}>
+        {gameMode === "auto" ? "Auto Play" : "Chess Game"}
+      </h1>
       <p style={{ marginBottom: "16px", color: "#666", fontSize: "14px" }}>
-        Playing as <strong>{playerColor}</strong> &middot; Game{" "}
-        <code>{gameId}</code>
+        {gameMode === "auto" ? (
+          <>Engine vs Engine &middot; Game <code>{gameId}</code></>
+        ) : (
+          <>Playing as <strong>{playerColor}</strong> &middot; Game{" "}<code>{gameId}</code></>
+        )}
       </p>
-      <ChessBoard
-        gameId={gameId}
-        playerToken={playerToken}
-        playerColor={playerColor}
-      />
+      <div style={{ display: "flex", gap: "16px", alignItems: "flex-start" }}>
+        <ChessBoard
+          gameId={gameId}
+          playerToken={playerToken}
+          playerColor={playerColor}
+          readonly={gameMode === "auto"}
+          onNewGame={createNewGame}
+        />
+        {gameMode === "auto" && (
+          <AutoPlayPanel
+            ref={autoRef}
+            gameId={gameId}
+            onRunningChange={setAutoRunning}
+          />
+        )}
+        {gameMode === "human-vs-ai" && (
+          <AiConfigPanel gameId={gameId} />
+        )}
+      </div>
+      {gameMode === "auto" && (
+        <button
+          onClick={() => autoRunning ? autoRef.current?.pause() : autoRef.current?.start()}
+          style={{
+            marginTop: "20px",
+            padding: "12px 48px",
+            fontSize: "16px",
+            cursor: "pointer",
+            border: "2px solid #333",
+            borderRadius: "8px",
+            background: autoRunning ? "#c0392b" : "#333",
+            color: "#fff",
+          }}
+        >
+          {autoRunning ? "Pause" : "Start"}
+        </button>
+      )}
     </div>
   );
 }

@@ -1,11 +1,24 @@
-export type GameMode = "human-vs-human" | "human-vs-ai";
+export type GameMode = "human-vs-human" | "human-vs-ai" | "auto";
 
 export type GameStatus =
   | "waiting" // waiting for opponent to join
   | "in_progress"
   | "check"
   | "checkmate"
-  | "stalemate";
+  | "stalemate"
+  | "draw"; // threefold repetition, 50-move rule
+
+export interface EngineConfig {
+  depth?: number;
+  timeMs?: number;
+  useBook?: boolean;
+  useHash?: boolean;
+  hashSizeMb?: number;
+  contempt?: number;
+  useNullMove?: boolean;
+  nullMoveDepthReduction?: number;
+  nullMoveThreshold?: number;
+}
 
 export interface GameSession {
   id: string;
@@ -16,8 +29,12 @@ export interface GameSession {
   white: string | null; // player token
   black: string | null;
   aiDepth: number;
+  aiConfig?: EngineConfig; // for human-vs-ai
+  whiteConfig?: EngineConfig; // for auto mode
+  blackConfig?: EngineConfig; // for auto mode
   winner?: "white" | "black";
   eval?: number; // centipawns, from white's perspective
+  positionHistory: Map<string, number>; // FEN position key → count
 }
 
 export interface GameEvent {

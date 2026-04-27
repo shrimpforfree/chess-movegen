@@ -19,6 +19,8 @@ object Routes:
     if moves.isEmpty then
       if inCheck then GameStatus.Checkmate(board.sideToMove.opponent)
       else GameStatus.Draw(DrawReason.Stalemate)
+    else if board.halfmoveClock >= 100 then
+      GameStatus.Draw(DrawReason.FiftyMoveRule)
     else GameStatus.InProgress(inCheck)
 
   private def statusString(status: GameStatus): String = status match
@@ -26,6 +28,20 @@ object Routes:
     case GameStatus.InProgress(true)  => "check"
     case GameStatus.Checkmate(w)      => s"checkmate:${if w == Color.White then "white" else "black"}"
     case GameStatus.Draw(reason)      => s"draw:${reason.toString.toLowerCase}"
+
+  private def runSearch(board: Board, cfg: EngineConfig): IO[Option[(Move, Int)]] =
+    IO.blocking {
+      Search.bestMove(board,
+        maxDepth = cfg.depth.getOrElse(5),
+        useBook = cfg.useBook.getOrElse(true),
+        useHashTable = cfg.useHash.getOrElse(true),
+        hashSizeMb = cfg.hashSizeMb.getOrElse(16),
+        contempt = cfg.contempt.getOrElse(0),
+        useNullMovePruning = cfg.useNullMove.getOrElse(true),
+        nullMoveReduction = cfg.nullMoveDepthReduction.getOrElse(2),
+        nullMoveMinAdvantage = cfg.nullMoveThreshold.getOrElse(0)
+      )
+    }
 
   val chessRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
 
@@ -59,12 +75,14 @@ object Routes:
         resp <- FenCodec.boardFromFen(body.fen) match
           case Left(err) => BadRequest(ErrorResponse(err))
           case Right(board) =>
-            Search.bestMove(board, body.depth) match
+            val cfg = body.config.getOrElse(EngineConfig.default)
+            runSearch(board, cfg).flatMap {
               case None => BadRequest(ErrorResponse("No legal moves available"))
               case Some((move, score)) =>
                 val whiteEval = if board.sideToMove == Color.White then score else -score
                 val after = board.makeMove(move)
                 Ok(AiMoveResponse(FenCodec.moveToUci(move), FenCodec.boardToFen(after), statusString(gameStatus(after)), whiteEval))
+            }
       yield resp
 
     case req @ POST -> Root / "validate" =>
@@ -107,12 +125,14 @@ object Routes:
         resp <- BoardCodec.fromJson(body.board) match
           case Left(err) => BadRequest(ErrorResponse(err))
           case Right(board) =>
-            Search.bestMove(board, body.depth) match
+            val cfg = body.config.getOrElse(EngineConfig.default)
+            runSearch(board, cfg).flatMap {
               case None => BadRequest(ErrorResponse("No legal moves available"))
               case Some((move, score)) =>
                 val whiteEval = if board.sideToMove == Color.White then score else -score
                 val after = board.makeMove(move)
                 Ok(BoardAiMoveResponse(FenCodec.moveToUci(move), BoardCodec.toJson(after), statusString(gameStatus(after)), whiteEval))
+            }
       yield resp
 
     case req @ POST -> Root / "board" / "validate" =>

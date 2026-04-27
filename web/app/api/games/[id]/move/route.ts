@@ -17,7 +17,8 @@ export async function POST(
 
   if (
     game.status === "checkmate" ||
-    game.status === "stalemate"
+    game.status === "stalemate" ||
+    game.status === "draw"
   ) {
     return Response.json({ error: "Game is over" }, { status: 400 });
   }
@@ -48,7 +49,8 @@ export async function POST(
     const aiColor = updatedGame.black === "ai" ? "b" : "w";
     if (sideToMove === aiColor) {
       try {
-        const aiResult = await getAiMove(updatedGame.fen, updatedGame.aiDepth);
+        const aiConfig = updatedGame.aiConfig ?? { depth: updatedGame.aiDepth };
+        const aiResult = await getAiMove(updatedGame.fen, aiConfig);
         gameStore.applyMove(
           id,
           aiResult.fen,

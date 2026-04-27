@@ -7,15 +7,16 @@ export default function Home() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [joinId, setJoinId] = useState("");
+  const [fen, setFen] = useState("");
 
-  const createGame = async (mode: "human-vs-human" | "human-vs-ai") => {
+  const createGame = async (mode: "human-vs-human" | "human-vs-ai" | "auto") => {
     setLoading(true);
     const playerToken = Math.random().toString(36).substring(2, 12);
 
     const res = await fetch("/api/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, playerToken, aiDepth: 4 }),
+      body: JSON.stringify({ mode, playerToken, aiDepth: 4, fen: fen.trim() || undefined }),
     });
     const data = await res.json();
 
@@ -85,6 +86,40 @@ export default function Home() {
         >
           Play vs Computer
         </button>
+
+        <button
+          onClick={() => createGame("auto")}
+          disabled={loading}
+          style={{
+            padding: "16px",
+            fontSize: "18px",
+            cursor: "pointer",
+            border: "2px solid #666",
+            borderRadius: "8px",
+            background: "#f5f5f5",
+            color: "#666",
+          }}
+        >
+          Auto Play
+        </button>
+      </div>
+
+      <div style={{ width: "300px" }}>
+        <input
+          type="text"
+          placeholder="Custom FEN (optional)"
+          value={fen}
+          onChange={(e) => setFen(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "12px",
+            fontSize: "13px",
+            border: "1px solid #ccc",
+            borderRadius: "8px",
+            fontFamily: "monospace",
+            boxSizing: "border-box",
+          }}
+        />
       </div>
 
       <div
