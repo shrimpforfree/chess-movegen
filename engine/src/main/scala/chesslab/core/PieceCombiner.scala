@@ -204,10 +204,13 @@ object PieceCombiner:
     Set(Slides(Diagonal))     -> "bishop",
     Set(Slides(Orthogonal))   -> "rook",
     Set(Slides(All))          -> "queen",
+    Set(Slides(Diagonal), Slides(Orthogonal))  -> "queen",   // diagonal + orthogonal = queen
     Set(Slides(All, 1))       -> "king",
+    Set(Slides(Diagonal, 1), Slides(Orthogonal, 1)) -> "king", // diagonal step + orthogonal step = king
     Set(Slides(Diagonal), Jumps(2, 1))     -> "archbishop",
     Set(Slides(Orthogonal), Jumps(2, 1))   -> "chancellor",
     Set(Slides(All), Jumps(2, 1))          -> "amazon",
+    Set(Slides(Diagonal), Slides(Orthogonal), Jumps(2, 1)) -> "amazon", // diag + orth + knight = amazon
     Set(Jumps(1, 3))          -> "camel",
     Set(Jumps(2, 3))          -> "zebra",
   )

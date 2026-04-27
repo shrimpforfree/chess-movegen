@@ -22,10 +22,11 @@ interface Props {
   upgrade: FusionUpgrade;
   onDraftComplete: () => void;
   onUpgradeApplied: (result: UpgradeResult) => void;
+  onUpgradeUndone: () => void;
 }
 
 const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftPanel(
-  { gameId, playerToken, upgrade, onDraftComplete, onUpgradeApplied },
+  { gameId, playerToken, upgrade, onDraftComplete, onUpgradeApplied, onUpgradeUndone },
   ref
 ) {
   const [selected, setSelected] = useState(false);
@@ -34,8 +35,16 @@ const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftP
   const [resultInfo, setResultInfo] = useState<{ pieceName: string; value: number; description: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const undoUpgrade = () => {
+    setApplied(false);
+    setResultInfo(null);
+    setSelected(true); // keep upgrade selected so they can click another piece
+    onUpgradeUndone();
+  };
+
   const applyToSquare = async (square: string) => {
-    if (applying || applied || !selected) return;
+    if (applying || !selected) return;
+    if (applied) return; // must undo first
     setApplying(true);
     setError(null);
     try {
@@ -142,21 +151,37 @@ const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftP
       )}
 
       {applied && (
-        <button
-          onClick={onDraftComplete}
-          style={{
-            padding: "12px",
-            fontSize: "16px",
-            fontWeight: "bold",
-            cursor: "pointer",
-            border: "2px solid #333",
-            borderRadius: "8px",
-            background: "#333",
-            color: "#fff",
-          }}
-        >
-          Start Game
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <button
+            onClick={onDraftComplete}
+            style={{
+              padding: "12px",
+              fontSize: "16px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              border: "2px solid #333",
+              borderRadius: "8px",
+              background: "#333",
+              color: "#fff",
+            }}
+          >
+            Start Game
+          </button>
+          <button
+            onClick={undoUpgrade}
+            style={{
+              padding: "8px",
+              fontSize: "13px",
+              cursor: "pointer",
+              border: "1px solid #ccc",
+              borderRadius: "6px",
+              background: "#fff",
+              color: "#999",
+            }}
+          >
+            Change piece
+          </button>
+        </div>
       )}
     </div>
   );

@@ -301,6 +301,10 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
                 setDraftDone(true);
                 fetchLegalMoves();
               }}
+              onUpgradeUndone={() => {
+                setBoard(START_BOARD);
+                setUpgradeInfo(null);
+              }}
               onUpgradeApplied={(result: UpgradeResult) => {
                 setUpgradeInfo({
                   pieceName: result.pieceName,

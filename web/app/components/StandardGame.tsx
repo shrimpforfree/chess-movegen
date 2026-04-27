@@ -41,22 +41,7 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
 
   useEffect(() => { fetchState(); }, [fetchState]);
 
-  // SSE for real-time updates
-  useEffect(() => {
-    const es = new EventSource(`/api/sse/${gameId}`);
-    es.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.type === "update") {
-        if (data.fen) setFen(data.fen);
-        if (data.status) setStatus(data.status);
-        if (data.winner) setWinner(data.winner);
-        if (data.eval !== undefined) setEvalScore(data.eval);
-        // Refetch legal moves after update
-        fetchState();
-      }
-    };
-    return () => es.close();
-  }, [gameId, fetchState]);
+
 
   const isMyTurn = fen.split(" ")[1] === (playerColor === "white" ? "w" : "b");
   const gameOver = status === "checkmate" || status === "stalemate" || status === "draw";
@@ -70,10 +55,21 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
     return match.length === 5 ? base + "q" : base;
   }, [legalMoves]);
 
+  // Fetch only legal moves without touching the position
+  const fetchLegalMoves = useCallback(() => {
+    fetch(`/api/games/${gameId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.legalMoves) setLegalMoves(data.legalMoves);
+      })
+      .catch(() => {});
+  }, [gameId]);
+
   const sendMove = useCallback((moveUci: string) => {
     setError(null);
     setSelectedSquare(null);
     setLegalTargets(new Set());
+    setLegalMoves([]); // Clear legal moves while waiting
 
     fetch(`/api/games/${gameId}/move`, {
       method: "POST",
@@ -83,33 +79,28 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
       .then(r => r.json())
       .then(data => {
         if (data.error) { setError(data.error); fetchState(); return; }
-        // Server returns final state (after AI move too).
-        // Apply player position immediately (already animated by drop).
-        // Then delay AI position so react-chessboard can animate it.
         const playerFen = data.playerFen || data.fen;
         const finalFen = data.fen;
-        setFen(playerFen);
 
-        if (playerFen !== finalFen) {
-          // AI moved too — delay to animate
-          setTimeout(() => {
-            setFen(finalFen);
-            if (data.status) setStatus(data.status);
-            if (data.moves) setMoves(data.moves);
-            if (data.winner) setWinner(data.winner);
-            if (data.eval !== undefined) setEvalScore(data.eval);
-            fetchState();
-          }, 400);
-        } else {
+        const applyFinal = () => {
+          setFen(finalFen);
           if (data.status) setStatus(data.status);
           if (data.moves) setMoves(data.moves);
           if (data.winner) setWinner(data.winner);
           if (data.eval !== undefined) setEvalScore(data.eval);
-          fetchState();
+          fetchLegalMoves();
+        };
+
+        if (playerFen !== finalFen) {
+          // AI moved too — show player position briefly, then animate AI move
+          setFen(playerFen);
+          setTimeout(applyFinal, 400);
+        } else {
+          applyFinal();
         }
       })
       .catch(() => setError("Failed to make move"));
-  }, [gameId, playerToken, fetchState]);
+  }, [gameId, playerToken, fetchState, fetchLegalMoves]);
 
   const onPieceDrop = useCallback((from: string, to: string) => {
     if (!canInteract) return false;

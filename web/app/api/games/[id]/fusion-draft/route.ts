@@ -15,7 +15,10 @@ export async function POST(
   const game = gameStore.get(id);
   if (!game) return Response.json({ error: "Game not found" }, { status: 404 });
   if (game.white !== playerToken) return Response.json({ error: "Not your game" }, { status: 403 });
-  if (game.fusionDraftDone) return Response.json({ error: "Draft already completed" }, { status: 400 });
+  // Block re-drafting once moves have been made
+  if (game.moves && game.moves.length > 0) {
+    return Response.json({ error: "Game already started" }, { status: 400 });
+  }
 
   // Skip — start with standard board, no upgrade applied
   if (skip) {
