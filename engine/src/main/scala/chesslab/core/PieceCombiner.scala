@@ -195,6 +195,28 @@ object PieceCombiner:
       case None    => traitSuffix
 
   // =========================================================================
+  // Known trait → standard piece mapping
+  // If a trait set matches a known piece exactly, use that instead of creating a new one.
+  // =========================================================================
+
+  private val knownPieces: Map[Set[PieceTrait], String] = Map(
+    Set(Jumps(2, 1))          -> "knight",
+    Set(Slides(Diagonal))     -> "bishop",
+    Set(Slides(Orthogonal))   -> "rook",
+    Set(Slides(All))          -> "queen",
+    Set(Slides(All, 1))       -> "king",
+    Set(Slides(Diagonal), Jumps(2, 1))     -> "archbishop",
+    Set(Slides(Orthogonal), Jumps(2, 1))   -> "chancellor",
+    Set(Slides(All), Jumps(2, 1))          -> "amazon",
+    Set(Jumps(1, 3))          -> "camel",
+    Set(Jumps(2, 3))          -> "zebra",
+  )
+
+  /** Check if a trait set matches a known piece. Returns the known piece name or None. */
+  def matchKnownPiece(traits: Vector[PieceTrait]): Option[String] =
+    knownPieces.get(traits.toSet)
+
+  // =========================================================================
   // Combine — traits in, piece definition out
   // =========================================================================
 

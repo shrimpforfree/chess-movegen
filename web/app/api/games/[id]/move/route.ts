@@ -27,13 +27,18 @@ export async function POST(
     return Response.json({ error: "Game is over" }, { status: 400 });
   }
 
-  if (!gameStore.isPlayerTurn(game, playerToken)) {
-    return Response.json({ error: "Not your turn" }, { status: 400 });
+  // Fusion mode: check turn from boardJson, use board JSON endpoints
+  if (game.mode === "fusion" && game.boardJson) {
+    const sideToMove = game.boardJson.sideToMove;
+    const playerColor = game.white === playerToken ? "white" : "black";
+    if (sideToMove !== playerColor) {
+      return Response.json({ error: "Not your turn" }, { status: 400 });
+    }
+    return handleFusionMove(id, game, move);
   }
 
-  // Fusion mode uses board JSON endpoints (dynamic pieces don't have stable FEN chars)
-  if (game.mode === "fusion" && game.boardJson) {
-    return handleFusionMove(id, game, move);
+  if (!gameStore.isPlayerTurn(game, playerToken)) {
+    return Response.json({ error: "Not your turn" }, { status: 400 });
   }
 
   // Standard FEN-based move
@@ -47,10 +52,12 @@ export async function POST(
 
   gameStore.applyMove(id, result.fen, move, result.status);
 
-  // If human-vs-ai and it's now the AI's turn, make the AI move
+  // Save player's FEN before AI moves
+  const playerFen = result.fen;
+
   const updatedGame = gameStore.get(id)!;
   if (
-    (updatedGame.mode === "human-vs-ai") &&
+    updatedGame.mode === "human-vs-ai" &&
     updatedGame.status !== "checkmate" &&
     updatedGame.status !== "stalemate"
   ) {
@@ -59,6 +66,7 @@ export async function POST(
 
   const finalGame = gameStore.get(id)!;
   return Response.json({
+    playerFen,
     fen: finalGame.fen,
     status: finalGame.status,
     moves: finalGame.moves,
@@ -71,7 +79,7 @@ export async function POST(
 /** Handle a move in fusion mode using board JSON endpoints. */
 async function handleFusionMove(id: string, game: GameSession, move: string) {
   try {
-    // Make the player's move
+    // Make the player's move via board JSON endpoint
     const moveRes = await fetch(`${ENGINE_URL}/board/make-move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,36 +93,48 @@ async function handleFusionMove(id: string, game: GameSession, move: string) {
 
     game.boardJson = moveData.board;
     game.moves.push(move);
-    const { status, winner } = parseEngineStatus(moveData.status);
-    game.status = status;
-    if (winner) game.winner = winner;
+    const playerStatus = parseEngineStatus(moveData.status);
+    game.status = playerStatus.status;
+    if (playerStatus.winner) game.winner = playerStatus.winner;
 
-    // AI responds
+    // Save player's board before AI moves
+    const playerBoardJson = JSON.parse(JSON.stringify(game.boardJson));
+
+    // AI responds if game isn't over
+    let aiError: string | undefined;
     if (game.status !== "checkmate" && game.status !== "stalemate" && game.status !== "draw") {
       const aiConfig = game.aiConfig ?? { depth: game.aiDepth };
-      const aiRes = await fetch(`${ENGINE_URL}/board/ai-move`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board: game.boardJson, config: aiConfig }),
-      });
-      if (aiRes.ok) {
-        const aiData = await aiRes.json();
-        game.boardJson = aiData.board;
-        game.moves.push(aiData.move);
-        game.eval = aiData.eval;
-        const aiStatus = parseEngineStatus(aiData.status);
-        game.status = aiStatus.status;
-        if (aiStatus.winner) game.winner = aiStatus.winner;
+      try {
+        const aiRes = await fetch(`${ENGINE_URL}/board/ai-move`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ board: game.boardJson, config: aiConfig }),
+        });
+        if (aiRes.ok) {
+          const aiData = await aiRes.json();
+          game.boardJson = aiData.board;
+          game.moves.push(aiData.move);
+          game.eval = aiData.eval;
+          const aiStatus = parseEngineStatus(aiData.status);
+          game.status = aiStatus.status;
+          if (aiStatus.winner) game.winner = aiStatus.winner;
+        } else {
+          aiError = "AI failed to respond";
+        }
+      } catch {
+        aiError = "Engine unavailable";
       }
     }
 
     return Response.json({
       fen: game.fen,
+      playerBoardJson: playerBoardJson,
       status: game.status,
       moves: game.moves,
       winner: game.winner,
       eval: game.eval,
       boardJson: game.boardJson,
+      aiError,
     });
   } catch {
     return Response.json({ error: "Engine unavailable" }, { status: 502 });
@@ -123,7 +143,11 @@ async function handleFusionMove(id: string, game: GameSession, move: string) {
 
 function parseEngineStatus(engineStatus: string): { status: "in_progress" | "check" | "checkmate" | "stalemate" | "draw"; winner?: "white" | "black" } {
   if (engineStatus.startsWith("checkmate:")) return { status: "checkmate", winner: engineStatus.split(":")[1] as "white" | "black" };
-  if (engineStatus === "stalemate") return { status: "stalemate" };
+  if (engineStatus.startsWith("draw:")) {
+    // draw:stalemate, draw:fifty_move_rule, etc.
+    const reason = engineStatus.split(":")[1];
+    return reason === "stalemate" ? { status: "stalemate" } : { status: "draw" };
+  }
   if (engineStatus === "check") return { status: "check" };
   return { status: "in_progress" };
 }

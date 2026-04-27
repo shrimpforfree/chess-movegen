@@ -67,17 +67,29 @@ object Routes:
       piece <- body.board.pieces.get(body.square).toRight(s"No piece on ${body.square}")
       _ <- if piece.kind == "king" then Left("Cannot upgrade the king") else Right(())
       result <- {
-        val baseName = piece.kind
-        PieceCombiner.upgradeAndRegister(baseName, Vector(upgrade.traitDef)) match
-          case None => Left("Too many piece types registered")
-          case Some((defn, _, _)) =>
-            // Swap the piece kind in the JSON board
-            val newPiece = PieceJson(defn.name, piece.color)
-            val newPieces = body.board.pieces.updated(body.square, newPiece)
-            val newBoard = body.board.copy(pieces = newPieces)
-            Right(FusionApplyResponse(
-              newBoard, defn.name, defn.value, defn.description, defn.movesFrom.toList
-            ))
+        // Compute the combined traits
+        val baseTraits = PieceCombiner.traitsOf(piece.kind)
+        val allTraits =
+          if piece.kind == "pawn" then Vector(upgrade.traitDef)
+          else (baseTraits ++ Vector(upgrade.traitDef)).distinct
+
+        // Check if the result matches a known piece (e.g. pawn + diagonal slide = bishop)
+        val knownName = PieceCombiner.matchKnownPiece(allTraits)
+        val (pieceName, value, description, movesFrom) = knownName match
+          case Some(name) =>
+            // Use the existing known piece
+            val defn = PieceCombiner.combine(allTraits, Some(name))
+            (name, defn.value, defn.description, defn.movesFrom)
+          case None =>
+            // New combination — register it
+            PieceCombiner.upgradeAndRegister(piece.kind, Vector(upgrade.traitDef)) match
+              case Some((defn, _, _)) => (defn.name, defn.value, defn.description, defn.movesFrom)
+              case None => return Left("Too many piece types registered")
+
+        val newPiece = PieceJson(pieceName, piece.color)
+        val newPieces = body.board.pieces.updated(body.square, newPiece)
+        val newBoard = body.board.copy(pieces = newPieces)
+        Right(FusionApplyResponse(newBoard, pieceName, value, description, movesFrom.toList))
       }
     yield result
 

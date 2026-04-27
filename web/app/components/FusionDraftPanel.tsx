@@ -8,12 +8,20 @@ export interface FusionDraftRef {
   isSelected: () => boolean;
 }
 
+export interface UpgradeResult {
+  pieceName: string;
+  description: string;
+  value: number;
+  square: string;
+  movesFrom?: string[];
+}
+
 interface Props {
   gameId: string;
   playerToken: string;
   upgrade: FusionUpgrade;
   onDraftComplete: () => void;
-  onUpgradeApplied: () => void;
+  onUpgradeApplied: (result: UpgradeResult) => void;
 }
 
 const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftPanel(
@@ -44,7 +52,13 @@ const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftP
         setApplied(true);
         setApplying(false);
         setResultInfo({ pieceName: data.pieceName, value: data.value, description: data.description });
-        onUpgradeApplied();
+        onUpgradeApplied({
+          pieceName: data.pieceName,
+          description: data.description,
+          value: data.value,
+          square,
+          movesFrom: data.movesFrom,
+        });
       }
     } catch {
       setError("Failed to apply upgrade");
@@ -108,6 +122,24 @@ const FusionDraftPanel = forwardRef<FusionDraftRef, Props>(function FusionDraftP
       )}
 
       {error && <div style={{ color: "red", fontSize: "12px" }}>{error}</div>}
+
+      {/* Skip — start without upgrading */}
+      {!applied && (
+        <button
+          onClick={onDraftComplete}
+          style={{
+            padding: "8px",
+            fontSize: "13px",
+            cursor: "pointer",
+            border: "1px solid #ccc",
+            borderRadius: "6px",
+            background: "#fff",
+            color: "#999",
+          }}
+        >
+          Skip upgrade
+        </button>
+      )}
 
       {applied && (
         <button
