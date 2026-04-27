@@ -1,4 +1,4 @@
-export type GameMode = "human-vs-human" | "human-vs-ai" | "auto" | "fusion";
+export type GameMode = "human-vs-human" | "human-vs-ai" | "human-vs-ai-plus" | "auto" | "fusion";
 
 export interface FusionUpgrade {
   key: string;

@@ -77,6 +77,7 @@ export default function GamePage() {
           gameId={gameId}
           playerToken={playerToken}
           playerColor="white"
+          plusMode={gameMode === "human-vs-ai-plus"}
           onNewGame={createNewGame}
         />
       )}

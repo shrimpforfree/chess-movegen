@@ -10,10 +10,20 @@ interface Props {
   gameId: string;
   playerToken: string;
   playerColor: "white" | "black";
+  plusMode?: boolean;
   onNewGame: () => void;
 }
 
-export default function StandardGame({ gameId, playerToken, playerColor, onNewGame }: Props) {
+const ADS = [
+  { headline: "TIRED OF LOSING PIECES?", body: "Try PawnShield\u2122 \u2014 Now available at your local chess store! Side effects may include overconfidence and premature pawn storms.", color: "#e11d48" },
+  { headline: "ONE WEIRD TRICK TO BEAT GRANDMASTERS", body: "Bishops HATE him! Local man discovers secret pawn technique that engines can't refute. Click to learn more!", color: "#ea580c" },
+  { headline: "IS YOUR KING FEELING INSECURE?", body: "Try CastleGuard\u00ae \u2014 Premium king safety solutions. Because you're worth defending. Not responsible for back-rank mates.", color: "#2563eb" },
+  { headline: "DOWNLOAD MORE PAWNS", body: "Why play with 8 pawns when you can have 9? Scientists confirm: more pawns = more wins. That's just math.", color: "#16a34a" },
+  { headline: "HOT ROOKS IN YOUR AREA", body: "These rooks want to connect on YOUR open files! Don't miss out on this once-in-a-game opportunity. Must be 800+ rated.", color: "#9333ea" },
+  { headline: "PAWN COIN - TO THE MOON", body: "Invest in PAWN COIN today! Each pawn backed by real centipawn value. Up 200% since the last blunder. Not financial advice.", color: "#ca8a04" },
+];
+
+export default function StandardGame({ gameId, playerToken, playerColor, plusMode, onNewGame }: Props) {
   const [fen, setFen] = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
   const [status, setStatus] = useState("in_progress");
   const [moves, setMoves] = useState<string[]>([]);
@@ -23,6 +33,10 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [legalTargets, setLegalTargets] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [showAd, setShowAd] = useState(false);
+  const [adCountdown, setAdCountdown] = useState(0);
+  const [adIndex, setAdIndex] = useState(0);
+  const [spawnedSquare, setSpawnedSquare] = useState<string | null>(null);
 
   // Fetch game state
   const fetchState = useCallback(() => {
@@ -136,6 +150,49 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
   if (selectedSquare) squareStyles[selectedSquare] = { background: "rgba(255, 255, 0, 0.4)" };
   for (const sq of legalTargets) squareStyles[sq] = { background: "radial-gradient(circle, rgba(0,0,0,0.2) 25%, transparent 25%)", cursor: "pointer" };
 
+  // Plus mode: ad logic
+  const showAdButton = plusMode && !gameOver && isMyTurn && evalScore <= -100;
+
+  const startAd = () => {
+    setAdIndex(Math.floor(Math.random() * ADS.length));
+    setShowAd(true);
+    setAdCountdown(5);
+    const interval = setInterval(() => {
+      setAdCountdown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const claimPawn = async () => {
+    setShowAd(false);
+    try {
+      const res = await fetch(`/api/games/${gameId}/watch-ad`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerToken }),
+      });
+      const data = await res.json();
+      if (data.fen) {
+        setFen(data.fen);
+        setSpawnedSquare(data.square);
+        setTimeout(() => setSpawnedSquare(null), 2000);
+        fetchState();
+      }
+      if (data.error) setError(data.error);
+    } catch {
+      setError("Failed to spawn pawn");
+    }
+  };
+
+  const currentAd = ADS[adIndex % ADS.length];
+
+  // Spawned pawn highlight
+  if (spawnedSquare) {
+    squareStyles[spawnedSquare] = { background: "rgba(34, 197, 94, 0.4)" };
+  }
+
   const statusText = gameOver
     ? (status === "checkmate" ? `Checkmate! ${winner} wins!` : status === "stalemate" ? "Stalemate!" : "Draw!")
     : status === "check" ? (isMyTurn ? "You are in check!" : "Opponent in check")
@@ -158,6 +215,42 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
               onSquareClick={onSquareClick}
             />
             {gameOver && <GameOverOverlay status={status} winner={winner} onNewGame={onNewGame} />}
+            {/* Ad popup overlay */}
+            {showAd && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.75)", borderRadius: "4px", zIndex: 10 }}>
+                <div style={{
+                  background: "#fff", padding: "0", borderRadius: "12px", textAlign: "center",
+                  width: "380px", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+                }}>
+                  <div style={{ background: currentAd.color, padding: "16px 24px", color: "#fff" }}>
+                    <div style={{ fontSize: "11px", opacity: 0.8, marginBottom: "4px" }}>SPONSORED</div>
+                    <div style={{ fontSize: "20px", fontWeight: "bold", letterSpacing: "0.5px" }}>
+                      {currentAd.headline}
+                    </div>
+                  </div>
+                  <div style={{ padding: "20px 24px" }}>
+                    <div style={{ fontSize: "14px", color: "#555", lineHeight: "1.5", marginBottom: "20px" }}>
+                      {currentAd.body}
+                    </div>
+                    {adCountdown > 0 ? (
+                      <div style={{ fontSize: "14px", color: "#999", padding: "10px" }}>
+                        Skip in {adCountdown}s...
+                      </div>
+                    ) : (
+                      <button
+                        onClick={claimPawn}
+                        style={{
+                          padding: "12px 32px", fontSize: "16px", fontWeight: "bold", cursor: "pointer",
+                          border: "none", borderRadius: "8px", background: currentAd.color, color: "#fff",
+                        }}
+                      >
+                        Claim Free Pawn
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -166,6 +259,24 @@ export default function StandardGame({ gameId, playerToken, playerColor, onNewGa
           <RulesPanel fen={fen} />
         </div>
       </div>
+
+      {/* Watch Ad button — only in plus mode when losing */}
+      {showAdButton && (
+        <div style={{ alignSelf: "flex-start" }}>
+          <button
+            onClick={startAd}
+            disabled={showAd}
+            style={{
+              padding: "6px 14px", fontSize: "12px", cursor: "pointer",
+              border: "1px solid #d4d4d4", borderRadius: "6px",
+              background: "linear-gradient(135deg, #fef3c7, #fde68a)",
+              color: "#92400e", fontWeight: 600,
+            }}
+          >
+            Watch Ad for Free Pawn
+          </button>
+        </div>
+      )}
 
       {error && <div style={{ color: "red", fontSize: "14px" }}>{error}</div>}
       <MoveHistory moves={moves} />

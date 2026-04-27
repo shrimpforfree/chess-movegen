@@ -264,8 +264,6 @@ export default function FusionGame({ gameId, playerToken, upgrade, onNewGame }: 
     ? (isMyTurn ? "Check! Your turn" : "AI thinking...")
     : isMyTurn ? "Your turn" : "AI thinking...";
 
-  // FEN for rules panel (extract from board if possible)
-
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
       <div style={{ fontSize: "18px", fontWeight: "bold" }}>{statusText}</div>

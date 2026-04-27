@@ -57,7 +57,7 @@ export async function POST(
 
   const updatedGame = gameStore.get(id)!;
   if (
-    updatedGame.mode === "human-vs-ai" &&
+    (updatedGame.mode === "human-vs-ai" || updatedGame.mode === "human-vs-ai-plus") &&
     updatedGame.status !== "checkmate" &&
     updatedGame.status !== "stalemate"
   ) {

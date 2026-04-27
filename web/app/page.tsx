@@ -25,7 +25,7 @@ export default function Home() {
       });
   }, []);
 
-  const createGame = async (mode: "human-vs-ai" | "fusion") => {
+  const createGame = async (mode: "human-vs-ai" | "human-vs-ai-plus" | "fusion") => {
     setLoading(true);
     const playerToken = Math.random().toString(36).substring(2, 12);
     const fen = setups.find(s => s.key === selectedSetup)?.fen;
@@ -90,6 +90,17 @@ export default function Home() {
           }}
         >
           Play vs Computer
+        </button>
+
+        <button
+          onClick={() => createGame("human-vs-ai-plus")}
+          disabled={loading}
+          style={{
+            padding: "16px", fontSize: "18px", cursor: "pointer",
+            border: "2px solid #ca8a04", borderRadius: "8px", background: "linear-gradient(135deg, #eab308, #ca8a04)", color: "#fff",
+          }}
+        >
+          Play vs Computer+
         </button>
 
         <button
